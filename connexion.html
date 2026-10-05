@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
+<title>Connexion — Pilotage refonte web HEP Vaud</title>
+<link rel="icon" href="/assets/logo-hep.svg"><link rel="stylesheet" href="/app.css">
+</head>
+<body class="login">
+<main class="login-wrap">
+  <div class="card login-card">
+    <img src="/assets/logo-hep.svg" alt="HEP Vaud" width="96" height="56">
+    <h1 id="lt">Plateforme de pilotage</h1>
+    <p class="muted" id="ls">Refonte de l'écosystème web HEP Vaud</p>
+    <form id="lf" novalidate>
+      <div id="setupFields" hidden>
+        <p class="small">Première installation : créez le compte administrateur. Le code d'installation est affiché dans la console du serveur (Manager Infomaniak → Node.js → Console).</p>
+        <label for="code">Code d'installation</label><input id="code" autocomplete="off">
+        <label for="nom">Prénom et nom</label><input id="nom" autocomplete="name">
+      </div>
+      <label for="login">Identifiant</label><input id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="password">Mot de passe</label><input id="password" type="password" autocomplete="current-password" required>
+      <p class="small muted" id="pwHint" hidden>12 caractères minimum.</p>
+      <p class="err" id="err" role="alert"></p>
+      <button class="btn" type="submit" id="sb">Se connecter</button>
+    </form>
+  </div>
+</main>
+<script src="/connexion.js"></script>
+</body>
+</html>

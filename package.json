@@ -1,0 +1,13 @@
+{
+  "name": "hepvd-plateforme-pilotage",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Plateforme de pilotage du projet de refonte de l'écosystème web HEP Vaud",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "local": "node server.js --sans-authentification --projet=../.."
+  },
+  "engines": { "node": ">=22.13" },
+  "license": "UNLICENSED"
+}

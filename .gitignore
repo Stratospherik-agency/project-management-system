@@ -1,0 +1,12 @@
+# Données vivantes : jamais dans Git
+data/*
+!data/projet-data.js
+!data/sauvegardes/
+data/sauvegardes/*
+!data/sauvegardes/.gitkeep
+*.sqlite
+*.sqlite-*
+utilisateurs.json
+sessions.json
+node_modules/
+.DS_Store
