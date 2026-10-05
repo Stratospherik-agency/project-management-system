@@ -36,25 +36,26 @@ Créer sur GitHub un jeton d'accès en lecture seule : *Settings → Developer s
 
 | Réglage | Valeur |
 |---|---|
-| Source | Dépôt Git : `https://github.com/VOTRE-COMPTE/VOTRE-DEPOT.git`, branche `main` |
+| Source | Dépôt Git `https://github.com/VOTRE-COMPTE/VOTRE-DEPOT.git`, branche `main` (identifiant GitHub + jeton) |
 | Version de Node.js | **22 (LTS)** — 22.13 minimum pour la base SQLite intégrée — ou 24 |
-| Dossier d'exécution | la racine du dépôt (là où se trouve `package.json`) |
-| Commande de build | *(vide)* — aucune dépendance |
-| Commande de lancement | `node server.js --data=../hepvd-donnees` |
-| Port d'écoute | rien à saisir dans le code : l'application lit automatiquement `PORT` |
-| Certificat SSL | activer (Let's Encrypt) et forcer HTTPS |
+| Utiliser une commande de build | **décoché** (aucune dépendance) |
+| Commande d'exécution | `node server.js --port=3000 --host=0.0.0.0 --data=../hepvd-donnees --code-installation=VOTRE-CODE-SECRET` |
+| Port d'écoute | **3000** (identique à `--port`) |
+| Exécuter l'application après l'installation | activé |
+| Certificat SSL | activer et forcer HTTPS |
 
-`--data=../hepvd-donnees` place la base, les comptes et les fichiers téléversés **à côté** du dossier de l'application : un redéploiement Git ne les touche pas. Si la console indique une erreur d'écriture sur ce dossier, remplacez par `node server.js --data=./data` (dossier ignoré par Git, conservé lors des mises à jour par `git pull`).
+- `VOTRE-CODE-SECRET` : un code de **8 caractères minimum** que vous choisissez (sans espace). Il sert une seule fois, à créer le premier compte ; il est ignoré dès qu'un compte existe. Après l'installation, vous pouvez le retirer de la commande.
+- `--data=../hepvd-donnees` place la base, les comptes et les fichiers téléversés hors du dossier de l'application : un redéploiement Git ne les touche pas. Si le site ne démarre pas, essayez `--data=./data`.
+- Sans console dans le Manager, le journal du serveur est écrit dans `serveur.log`, dans ce dossier de données (visible par FTP / SFTP ou le gestionnaire de fichiers de l'hébergement).
 
 ## Étape 4 — Premier démarrage
 
-1. Démarrer l'application, puis ouvrir la **console** du site Node.js dans le Manager. Elle affiche :
-   `=== PREMIÈRE INSTALLATION === … code d'installation : XXXXXXXXXX`
-2. Ouvrir https://projectmanagement.stratospherik.ch → la page **Installation** s'affiche.
-3. Saisir le code, votre nom, un identifiant (ex. `alexis`) et un mot de passe d'au moins 12 caractères. Ce compte est **administrateur**.
-4. La plateforme crée la base à partir de `data/projet-data.js` et s'ouvre sur la vue d'ensemble.
+1. Ouvrir https://projectmanagement.stratospherik.ch → la page **Installation** s'affiche.
+2. Saisir le code choisi à l'étape 3, votre nom, un identifiant (ex. `alexis`) et un mot de passe d'au moins 12 caractères. Ce compte est **administrateur**.
+3. La plateforme crée la base à partir de `data/projet-data.js` et s'ouvre sur la vue d'ensemble.
+4. Facultatif : retirer `--code-installation=…` de la commande d'exécution et redémarrer.
 
-Tant qu'aucun compte n'existe, tout le site redirige vers la page d'installation et le code change à chaque redémarrage.
+Tant qu'aucun compte n'existe, tout le site redirige vers la page d'installation.
 
 ## Étape 5 — Créer les comptes
 

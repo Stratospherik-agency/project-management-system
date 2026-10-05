@@ -11,6 +11,9 @@
  *   --projet=../..         PROJECT_ROOT  (facultatif : dossier projet servi en lecture sous /projet/)
  *   --sans-authentification               (usage local uniquement, refusé si l'hôte n'est pas 127.0.0.1)
  *   --auth-proxy                          (identité fournie par un reverse proxy : en-tête X-Remote-User)
+ *   --code-installation=CODE  SETUP_CODE  (code choisi pour créer le premier compte quand aucune console n'est accessible ;
+ *                                          ignoré dès qu'un compte existe)
+ * Journal du serveur : <données>/serveur.log (consultable par FTP / gestionnaire de fichiers).
  */
 "use strict";
 const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
@@ -24,6 +27,10 @@ const OPEN = !!ARGS["sans-authentification"], PROXY = !!ARGS["auth-proxy"];
 if (OPEN && HOST !== "127.0.0.1" && HOST !== "localhost") { console.error("Refus : --sans-authentification n'est autorisé qu'en local (127.0.0.1)."); process.exit(1); }
 const FILES_DIR = path.join(DATA_DIR, "fichiers");
 fs.mkdirSync(FILES_DIR, { recursive: true });
+/* journal du serveur dans un fichier (hébergements sans console) */
+const LOG_F = path.join(DATA_DIR, "serveur.log");
+try { if (fs.existsSync(LOG_F) && fs.statSync(LOG_F).size > 2e6) fs.renameSync(LOG_F, LOG_F + ".1"); } catch (e) { }
+for (const k of ["log", "error"]) { const orig = console[k].bind(console); console[k] = (...a) => { orig(...a); try { fs.appendFileSync(LOG_F, `[${new Date().toISOString()}] ${k === "error" ? "ERREUR " : ""}${a.map(x => x instanceof Error ? x.stack : typeof x === "string" ? x : JSON.stringify(x)).join(" ")}\n`); } catch (e) { } }; }
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json", ".md": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".pdf": "application/pdf", ".csv": "text/csv; charset=utf-8", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".woff2": "font/woff2", ".ico": "image/x-icon" };
 const now = () => new Date().toISOString();
 
@@ -93,7 +100,13 @@ const ROLES = ["admin", "editeur", "lecteur"];
 const validPw = pw => typeof pw === "string" && pw.length >= 12;
 const validLogin = l => typeof l === "string" && /^[a-z0-9._-]{2,40}$/.test(l);
 let SETUP_CODE = null;
-if (!OPEN && !PROXY && !USERS.length) { SETUP_CODE = crypto.randomBytes(5).toString("hex").toUpperCase(); }
+const CODE_F = path.join(DATA_DIR, "CODE-INSTALLATION.txt");
+if (!OPEN && !PROXY && !USERS.length) {
+  const fixed = String(ARGS["code-installation"] || process.env.SETUP_CODE || "").trim();
+  SETUP_CODE = fixed.length >= 8 ? fixed.toUpperCase() : crypto.randomBytes(5).toString("hex").toUpperCase();
+  if (fixed && fixed.length < 8) console.error("--code-installation ignoré : 8 caractères minimum. Un code aléatoire a été généré.");
+  try { fs.writeFileSync(CODE_F, `Code d'installation : ${fixed.length >= 8 ? "(celui indiqué dans la commande d'exécution)" : SETUP_CODE}\nGénéré le ${new Date().toISOString()}. Ce fichier est supprimé après la création du premier compte.\n`, { mode: 0o600 }); } catch (e) { }
+} else { try { fs.unlinkSync(CODE_F); } catch (e) { } }
 const fails = {}; // limitation des tentatives
 const tooMany = ip => { const f = fails[ip]; return f && f.n >= 8 && Date.now() - f.t < 15 * 60e3; };
 const fail = ip => { const f = fails[ip] || { n: 0, t: Date.now() }; if (Date.now() - f.t > 15 * 60e3) { f.n = 0; f.t = Date.now(); } f.n++; fails[ip] = f; };
@@ -161,7 +174,7 @@ http.createServer(async (req, res) => {
       if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." });
       const salt = crypto.randomBytes(16).toString("hex");
       USERS.push({ login: b.login, nom: String(b.nom || b.login).slice(0, 80), role: "admin", salt, hash: hashPw(b.password, salt), cree: now(), actif: true });
-      saveUsers(); SETUP_CODE = null; setSession(req, res, b.login); console.log(`Installation terminée : compte administrateur « ${b.login} » créé.`);
+      saveUsers(); SETUP_CODE = null; try { fs.unlinkSync(CODE_F); } catch (e) { } setSession(req, res, b.login); console.log(`Installation terminée : compte administrateur « ${b.login} » créé.`);
       return send(req, res, 200, { ok: true });
     }
     /* ---------- connexion */
@@ -240,5 +253,5 @@ http.createServer(async (req, res) => {
   } catch (e) { console.error(e); send(req, res, 500, { error: "Erreur serveur" }); }
 }).listen(PORT, HOST, () => {
   console.log(`Plateforme HEPVD v0.3.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? " · dossier projet : " + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
-  if (SETUP_CODE) console.log(`\n=== PREMIÈRE INSTALLATION ===\nOuvrez le site et saisissez ce code d'installation : ${SETUP_CODE}\n(le code change à chaque redémarrage tant qu'aucun compte n'est créé)\n`);
+  if (SETUP_CODE) console.log(`\n=== PREMIÈRE INSTALLATION ===\nOuvrez le site et saisissez le code d'installation${ARGS["code-installation"] || process.env.SETUP_CODE ? " indiqué dans la commande d'exécution" : " : " + SETUP_CODE + " (aussi dans " + CODE_F + ")"}\n`);
 });
