@@ -279,3 +279,4 @@ body.login{min-height:100vh;display:flex;align-items:center;justify-content:cent
 .err{color:var(--alerte);min-height:1em;margin:4px 0;font-size:14px}
 .readonly-banner{background:var(--jaune);padding:6px 28px;font-size:13px}
 .login-card label{margin-top:8px}
+.login-card .err:not(:empty){background:#fdecea;border:1px solid var(--alerte);border-radius:10px;padding:10px 12px;font-weight:700}

@@ -6,7 +6,7 @@
   if (setup) { $("#setupFields").hidden = false; $("#pwHint").hidden = false; $("#lt").textContent = "Installation"; $("#sb").textContent = "Créer le compte administrateur"; $("#password").autocomplete = "new-password"; $("#code").focus(); }
   else $("#login").focus();
   $("#lf").addEventListener("submit", async e => {
-    e.preventDefault(); $("#err").textContent = ""; $("#sb").disabled = true;
+    e.preventDefault(); $("#err").textContent = ""; $("#sb").disabled = true; const lbl = $("#sb").textContent; $("#sb").textContent = "Vérification…";
     const body = { login: $("#login").value.trim().toLowerCase(), password: $("#password").value };
     if (setup) { body.code = $("#code").value; body.nom = $("#nom").value.trim(); }
     try {
@@ -15,6 +15,6 @@
       if (r.ok) { location.href = "/#overview"; return; }
       $("#err").textContent = j.error || "Erreur " + r.status;
     } catch (x) { $("#err").textContent = "Serveur injoignable."; }
-    $("#sb").disabled = false;
+    $("#sb").disabled = false; $("#sb").textContent = lbl; $("#err").scrollIntoView({ block: "center" });
   });
 })();
