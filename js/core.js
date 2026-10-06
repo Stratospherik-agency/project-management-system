@@ -42,6 +42,10 @@ function normalize(d) {
   d.ui = Object.assign({ collapsed: {}, zoom: "mois", ganttPhase: "", showDeps: true, showBaseline: true, baseline: "" }, d.ui || {});
   d.documents.forEach(x => { if (!Array.isArray(x.taches)) x.taches = String(x.taches || "").split(/[,; ]+/).filter(Boolean); if (!Array.isArray(x.versions)) x.versions = []; });
   d.risques.forEach(x => { if (!Array.isArray(x.revues)) x.revues = []; });
+  d.budget.forEach(x => { if (!x.annee) x.annee = 2027; if (!x.scenarios) x.scenarios = "Recommandé, Allégé, Minimal"; });
+  if (d.meta.budgetReserve == null) d.meta.budgetReserve = 0.1;
+  if (!d.meta.budgetAnnee) d.meta.budgetAnnee = 2027;
+  if (d.meta.budgetScenario == null) d.meta.budgetScenario = "";
   return d;
 }
 function lsGet(k) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
@@ -138,6 +142,10 @@ document.addEventListener("click", e => {
 });
 
 /* ===================================================== schémas */
+const BUDGET_CATS = ["Licences et outils", "Recherche utilisateurs", "Imagerie", "Accessibilité", "Consultant UX/UI externe", "Formation", "Autre"];
+const SCENARIOS = ["Recommandé", "Allégé", "Minimal"];
+const BUDGET_SCEN_OPTS = ["Recommandé, Allégé, Minimal", "Recommandé, Allégé", "Recommandé"];
+const BUDGET_STATUTS = ["Estimé", "Proposé", "Demandé", "Accordé", "Engagé", "Consommé", "Abandonné"];
 const F = (k, l, type, o) => Object.assign({ k, l, type: type || "text" }, o || {});
 const SCHEMAS = {
   taches: { titre: "Tâche", prefix: "T", pad: 3, fields: [
@@ -181,8 +189,15 @@ const SCHEMAS = {
     F("protocole", "Protocole / auth", "text"), F("proprietaire", "Propriétaire", "text", { col: true }), F("documentation", "Documentation (lien)", "text", { full: true }),
     F("statut", "Statut", "select", { opts: () => ["À inventorier", "À confirmer", "Confirmé", "Documenté", "À remplacer", "À supprimer"], col: true })] },
   budget: { titre: "Poste budgétaire", prefix: "B-", pad: 2, fields: [
-    F("id", "ID", "ro", { col: true }), F("poste", "Poste", "text", { col: true, req: true, full: true }), F("phases", "Phases", "text", { col: true }),
-    F("prevu", "Prévu (CHF)", "number", { col: true }), F("engage", "Engagé (CHF)", "number", { col: true }), F("consomme", "Consommé (CHF)", "number", { col: true })] },
+    F("id", "ID", "ro", { col: true }), F("annee", "Année", "number"),
+    F("categorie", "Catégorie", "select", { col: true, opts: () => BUDGET_CATS }),
+    F("poste", "Poste", "text", { col: true, req: true, full: true }), F("phases", "Phases", "text", { col: true }), F("periode", "Période de dépense", "text"),
+    F("quantite", "Quantité", "number"), F("unite", "Unité", "text"), F("pu", "Prix unitaire (CHF)", "number"),
+    F("prevu", "Montant prévu (CHF)", "number", { col: true }),
+    F("scenarios", "Scénarios", "select", { col: true, opts: () => BUDGET_SCEN_OPTS }),
+    F("statut", "Statut", "select", { col: true, opts: () => BUDGET_STATUTS }),
+    F("justification", "Justification", "textarea", { full: true }), F("source", "Source / hypothèse", "text", { full: true }),
+    F("engage", "Engagé (CHF)", "number", { col: true }), F("consomme", "Consommé (CHF)", "number", { col: true })] },
   roles: { titre: "Rôle", key: "code", fields: [F("code", "Code", "text", { col: true, req: true }), F("nom", "Rôle", "text", { col: true, full: true, req: true }), F("personne", "Personne(s)", "text", { col: true, full: true })] },
   agents: { titre: "Agent IA", key: "id", fields: [F("id", "ID", "text", { req: true, col: true }), F("nom", "Nom", "text", { req: true, col: true }), F("mission", "Mission", "textarea", { full: true }), F("phases", "Phases", "text", { col: true }), F("skills", "Skills", "text", { col: true }), F("entrees", "Entrées", "textarea", { full: true }), F("sorties", "Livrables", "textarea", { full: true })] },
   phases: { titre: "Phase", prefix: "P", pad: 0, fields: [F("id", "ID", "ro", { col: true }), F("nom", "Nom", "text", { req: true, col: true }), F("debut", "Début", "date", { col: true }), F("fin", "Fin", "date", { col: true }), F("couleur", "Couleur", "color"), F("dossier", "Dossier", "text", { col: true }), F("agents", "Agents", "text"), F("objectif", "Objectif", "textarea", { full: true }), F("entrees", "Entrées", "textarea", { full: true }), F("verifs", "Vérifications", "textarea", { full: true })] },

@@ -105,7 +105,7 @@ function alerts() {
   S.risques.filter(r => r.statut !== "Clos" && score(r) >= 15 && !r.mitigation).forEach(r => add(3, "Risque", `${r.id} critique sans plan de mitigation`, r.id));
   S.risques.filter(r => r.statut !== "Clos" && score(r) >= 15 && r.proximite && pd(r.proximite) - now < 30 * DAY && pd(r.proximite) >= now - 365 * DAY).forEach(r => add(2, "Risque", `${r.id} critique, proche (${fd(r.proximite)}) : ${r.titre}`, r.id));
   const L = loadMatrix(3); Object.entries(L.M).forEach(([r, arr]) => { const mx = Math.max(...arr); if (mx > 3) add(2, "Charge", `${r} : jusqu'à ${mx} tâches simultanées dans les 3 prochains mois`, r); });
-  const P = S.budget.reduce((s, b) => s + (+b.prevu || 0), 0), E = S.budget.reduce((s, b) => s + (+b.engage || 0), 0);
+  const BC = budgetCalc(S.meta.budgetAnnee || 2027), P = BC.total, E = BC.eng;
   const g4 = S.jalons.find(j => j.id === "G4");
   if (P && E / P > 0.8) add(3, "Budget", `Budget engagé à ${Math.round(E / P * 100)} %`, "budget");
   else if (P && g4 && g4.statut !== "Validé" && E / P > 0.6) add(2, "Budget", `Budget engagé à ${Math.round(E / P * 100)} % avant le Design System v1.0`, "budget");
@@ -124,4 +124,50 @@ function refLink(ref) {
   if (/^A-/.test(ref)) return `<a class="chip" href="#actions">${esc(ref)}</a>`;
   if (ref === "budget") return `<a class="chip" href="#budget">Budget</a>`;
   return `<a class="chip" href="#anticipation">${esc(ref)}</a>`;
+}
+
+/* ---------- Budget : scénarios, années, extraits pour les rapports */
+const inScen = (b, s) => String(b.scenarios || "").split(/,\s*/).includes(s);
+const budgetYears = () => [...new Set(S.budget.map(b => +b.annee).filter(Boolean))].sort();
+const refScenario = () => S.meta.budgetScenario || "Recommandé";
+function budgetCalc(annee) {
+  const L = S.budget.filter(b => +b.annee === +annee && b.statut !== "Abandonné"), r = Number(S.meta.budgetReserve) || 0;
+  const catOf = b => BUDGET_CATS.includes(b.categorie) ? b.categorie : "Autre";
+  const cats = BUDGET_CATS.filter(c => L.some(b => catOf(b) === c));
+  const scens = SCENARIOS.filter(s => L.some(b => inScen(b, s)));
+  const sc = {};
+  SCENARIOS.forEach(s => { const by = {}; cats.forEach(c => by[c] = L.filter(b => inScen(b, s) && catOf(b) === c).reduce((t, b) => t + (+b.prevu || 0), 0)); const sub = Object.values(by).reduce((a, v) => a + v, 0); sc[s] = { by, sub, res: sub * r, tot: sub * (1 + r) }; });
+  const sum = k => L.reduce((t, b) => t + (+b[k] || 0), 0);
+  const ref = scens.includes(refScenario()) ? refScenario() : (scens[0] || "Recommandé");
+  return { annee: +annee, L, cats, scens, sc, r, ref, total: sc[ref].tot, eng: sum("engage"), con: sum("consomme"), env: +annee === +S.meta.budgetAnnee ? (+S.meta.budget || 0) : 0 };
+}
+const chf2 = n => (Number(n) || 0).toLocaleString("fr-CH", { maximumFractionDigits: 2 });
+const mdCell = s => String(s == null ? "" : s).replace(/\|/g, "/").replace(/\n+/g, " ");
+const SC_ABR = { "Recommandé": "R", "Allégé": "A", "Minimal": "M" };
+function budgetDecision() { return S.decisions.find(d => /sc[ée]nario budg/i.test(d.titre || "")) || null; }
+function budgetMd(annee, opts) {
+  opts = opts || {}; const B = budgetCalc(annee), d = budgetDecision();
+  if (!B.L.length) return `Aucun poste budgétaire pour ${annee}.`;
+  const ret = S.meta.budgetScenario ? `**${S.meta.budgetScenario}**` : `à arbitrer${d ? ` (décision ${d.id}, ${d.statut})` : ""} — référence : ${B.ref}`;
+  let md = `${opts.titre === false ? "" : `### Budget ${annee} — synthèse par scénario\n\n`}Scénario retenu : ${ret} · réserve pour imprévus ${Math.round(B.r * 100)} % · montants en CHF, hors temps de travail interne\n\n`;
+  md += `| Catégorie | ${B.scens.join(" | ")} |\n|---|${B.scens.map(() => "---").join("|")}|\n`;
+  md += B.cats.map(c => `| ${c} | ${B.scens.map(s => chf(B.sc[s].by[c])).join(" | ")} |`).join("\n") + "\n";
+  md += `| Réserve (${Math.round(B.r * 100)} %) | ${B.scens.map(s => chf(B.sc[s].res)).join(" | ")} |\n`;
+  md += `| **Total ${annee}** | ${B.scens.map(s => `**${chf(B.sc[s].tot)}**`).join(" | ")} |\n`;
+  if (B.env) md += `| Écart / enveloppe CHF ${chf(B.env)} | ${B.scens.map(s => { const e = B.sc[s].tot - B.env; return (e > 0 ? "+" : "−") + chf(Math.abs(e)); }).join(" | ")} |\n`;
+  md += `\nEngagé : CHF ${chf(B.eng)} · consommé : CHF ${chf(B.con)} (${B.total ? Math.round(B.eng / B.total * 100) : 0} % du scénario ${B.ref} engagé)\n`;
+  if (opts.detail) {
+    md += `\n### Détail ligne par ligne ${annee}\n\n| ID | Poste | Quantité | Prix unitaire | Montant | Scénarios | Statut | Justification |\n|---|---|---|---|---|---|---|---|\n`;
+    md += B.L.map(b => `| ${b.id} | ${mdCell(b.poste)} | ${b.quantite != null && b.quantite !== "" ? chf2(b.quantite) : ""} ${mdCell(b.unite)} | ${b.pu ? chf2(b.pu) : ""} | ${chf(b.prevu)} | ${String(b.scenarios || "").split(/,\s*/).map(s => SC_ABR[s] || s).join(" ")} | ${mdCell(b.statut)} | ${mdCell(b.justification)}${b.source ? ` (source : ${mdCell(b.source)})` : ""} |`).join("\n") + "\n\nR = Recommandé, A = Allégé, M = Minimal.\n";
+  }
+  return md;
+}
+function budgetPluriMd() {
+  const Y = budgetYears(); if (Y.length < 2) return "";
+  const rows = Y.map(y => { const B = budgetCalc(y); return { y, B }; });
+  return `### Vision pluriannuelle\n\n| Année | Scénario | Total CHF | Engagé |\n|---|---|---|---|\n` + rows.map(({ y, B }) => `| ${y} | ${B.ref} | ${chf(B.total)} | ${chf(B.eng)} |`).join("\n") + `\n| **Total** | | **${chf(rows.reduce((t, x) => t + x.B.total, 0))}** | ${chf(rows.reduce((t, x) => t + x.B.eng, 0))} |\n\nTotaux réserve incluse ; 2028 et suivantes : estimations indicatives.\n`;
+}
+function budgetNoteMd() {
+  const y = S.meta.budgetAnnee || budgetYears()[0];
+  return `# Note budgétaire — ${S.meta.nom}\n\n${S.meta.copil} · état au ${fd(todayIso())}\n\n${budgetMd(y, { detail: true })}\n${budgetPluriMd()}`;
 }

@@ -48,12 +48,14 @@ function compileReport(dateIso) {
     decisions: L(jw.filter(j => j.type === "Décision").map(j => `- ${j.id} : ${j.action}`).concat(S.decisions.filter(d => ["À instruire", "Proposée"].includes(d.statut)).map(d => `- En attente : ${d.id} ${d.titre} (${d.statut})`))),
     ds: L(jw.filter(j => /Design System|Élément du Design|Demande d'évolution|Besoin pour le Design/.test(j.type)).map(j => `- ${j.type} ${j.id} : ${j.action}`)),
     documents: L(S.documents.flatMap(d => (d.versions || []).filter(v => inW(v.date)).map(v => `- ${d.id} ${d.titre} — v${v.v} : ${v.note}`))),
+    budget: budgetMd(S.meta.budgetAnnee || 2027, { titre: false }) + "\n" + L(jw.filter(j => ["Budget", "Poste budgétaire"].includes(j.type)).map(j => `- ${j.id ? j.id + " : " : ""}${j.resume ? j.resume + " — " : ""}${j.action}`)),
+    budgetDetail: budgetMd(S.meta.budgetAnnee || 2027, { detail: true, titre: false }).split("### Détail")[1] ? "### Détail" + budgetMd(S.meta.budgetAnnee || 2027, { detail: true, titre: false }).split("### Détail")[1] + "\n" + budgetPluriMd() : "",
     journal: `${jw.length} modification(s) enregistrée(s) dans la plateforme cette semaine.`,
   } };
 }
 const AXES = ["Délais", "Budget", "Périmètre", "Qualité", "Ressources"], METEO = { "🟢": "Conforme", "🟠": "Vigilance", "🔴": "Alerte" };
-function reportMd(r) { const p = r.parts; return `# Rapport hebdomadaire — ${r.id}
-${S.meta.nom} · ${S.meta.copil} · Semaine du ${fd(r.mon)} au ${fd(r.sun)} · Rédigé par : ${r.auteur || "—"} · ${fd(r.date)}
+function reportMd(r) { const p = r.parts, exc = r.type === "Exceptionnel"; return `# ${exc ? "Rapport exceptionnel" + (r.objet ? " — " + r.objet : "") : "Rapport hebdomadaire — " + r.id}
+${S.meta.nom} · ${S.meta.copil} · ${exc ? "État au " + fd(r.ref) : `Semaine du ${fd(r.mon)} au ${fd(r.sun)}`} · Rédigé par : ${r.auteur || "—"} · ${fd(r.date)}
 
 ## Météo
 | Axe | Tendance | Commentaire |
@@ -81,6 +83,9 @@ ${p.anticipation}
 ## Risques principaux
 ${p.risques}
 
+## Budget
+${p.budget || "- (recompiler le rapport)"}
+${r.inclBudget && p.budgetDetail ? "\n" + p.budgetDetail : ""}
 ## Questionnements
 ${p.questions}
 
@@ -119,6 +124,8 @@ function vRapports() {
     <button class="btn sec sm" id="rmd">Exporter .md</button><button class="btn sec sm" id="rprint">Imprimer / PDF</button><button class="btn sm" id="rsave">Enregistrer le rapport</button></div>
     <div class="report"><div class="card no-print"><h2>${esc(r.id)} — saisie</h2>
       <div style="margin-bottom:12px"><label for="rauth">Rédigé par</label><input id="rauth" value="${esc(r.auteur)}" style="width:100%"></div>
+      <div style="margin-bottom:12px;display:grid;grid-template-columns:180px 1fr;gap:10px"><div><label for="rtype">Type de rapport</label><select id="rtype">${["Hebdomadaire", "Exceptionnel"].map(t => `<option ${(r.type || "Hebdomadaire") === t ? "selected" : ""}>${t}</option>`).join("")}</select></div><div><label for="robj">Objet (rapport exceptionnel)</label><input id="robj" value="${esc(r.objet || "")}" placeholder="ex. Demande budgétaire 2027" style="width:100%"></div></div>
+      <label class="chk" style="margin-bottom:12px"><input type="checkbox" id="rbud" ${r.inclBudget ? "checked" : ""}> Inclure le détail budgétaire ligne par ligne et la vision pluriannuelle</label>
       <h3>Météo</h3><div class="meteo">${AXES.map(a => `<label for="mv_${a}" style="margin:0">${a}</label><div class="row"><select id="mv_${a}" data-a="${a}" class="mv">${Object.keys(METEO).map(k => `<option value="${k}" ${((r.meteo[a] || {}).v || "🟢") === k ? "selected" : ""}>${k} ${METEO[k]}</option>`).join("")}</select><input data-a="${a}" class="mc" placeholder="Commentaire" value="${esc((r.meteo[a] || {}).c || "")}" style="flex:1" aria-label="Commentaire ${a}"></div>`).join("")}</div>
       <label for="rfaits" class="h3">Faits marquants</label><textarea id="rfaits" placeholder="- …">${esc(r.faits)}</textarea>
       <label for="rdem" class="h3">Demandes au Copil</label><textarea id="rdem" placeholder="- …">${esc(r.demandes)}</textarea>
@@ -126,14 +133,15 @@ function vRapports() {
       <p class="small"><button class="btn sec sm" id="rqReg">Enregistrer ces remises en question dans Questionnements</button></p>
       <p class="small muted">Les autres sections sont compilées automatiquement depuis la plateforme (skill hepvd-rapport-hebdo).</p></div>
       <div class="card md" id="rprev"></div></div>`);
-  const upd = () => { r.auteur = $("#rauth", wrap).value; r.faits = $("#rfaits", wrap).value; r.demandes = $("#rdem", wrap).value; r.questionsRQ = $("#rq", wrap).value;
+  const upd = () => { r.auteur = $("#rauth", wrap).value; r.type = $("#rtype", wrap).value; r.objet = $("#robj", wrap).value; r.inclBudget = $("#rbud", wrap).checked;
+    if (!r.wid) r.wid = /^EXC-/.test(r.id) ? compileReport(r.ref).id : r.id; r.id = r.type === "Exceptionnel" ? "EXC-" + r.ref : r.wid; r.faits = $("#rfaits", wrap).value; r.demandes = $("#rdem", wrap).value; r.questionsRQ = $("#rq", wrap).value;
     $$(".mv", wrap).forEach(s => { r.meteo[s.dataset.a] = r.meteo[s.dataset.a] || {}; r.meteo[s.dataset.a].v = s.value; }); $$(".mc", wrap).forEach(s => { r.meteo[s.dataset.a] = r.meteo[s.dataset.a] || {}; r.meteo[s.dataset.a].c = s.value; });
     r.md = reportMd(r); $("#rprev", wrap).innerHTML = mdToHtml(r.md); };
   setTimeout(upd, 0);
-  wrap.addEventListener("input", e => { if (e.target.id !== "rd") upd(); }); wrap.addEventListener("change", e => { if (e.target.classList.contains("mv")) upd(); });
+  wrap.addEventListener("input", e => { if (e.target.id !== "rd") upd(); }); wrap.addEventListener("change", e => { if (e.target.classList.contains("mv") || ["rtype", "rbud"].includes(e.target.id)) upd(); });
   $("#rd", wrap).onchange = e => { if (e.target.value) { newDraft(e.target.value); render(); } };
   $("#rregen", wrap).onclick = () => { r.parts = compileReport(r.ref).parts; r.historique = false; upd(); toast("Données recompilées"); };
-  $("#rmd", wrap).onclick = () => { upd(); download(`${r.id}_Rapport-hebdo.md`, r.md, "text/markdown;charset=utf-8"); };
+  $("#rmd", wrap).onclick = () => { upd(); download(`${r.id}_${r.type === "Exceptionnel" ? "Rapport-exceptionnel" : "Rapport-hebdo"}.md`, r.md, "text/markdown;charset=utf-8"); };
   $("#rprint", wrap).onclick = () => { upd(); window.print(); };
   $("#rqReg", wrap).onclick = () => { upd(); const lines = r.questionsRQ.split("\n").map(s => s.replace(/^[-•]\s*/, "").trim()).filter(s => s && !/^\(à compléter/.test(s)); lines.forEach(q => S.questions.push({ id: nextId("questions"), date: todayIso(), question: q, categorie: "Planning", phase: (S.phases.find(p => pd(p.debut) <= TODAY() && pd(p.fin) >= TODAY()) || {}).id || "", responsable: "CDP", origine: "Rapport " + r.id, auteur: USER, statut: "Ouverte", contexte: "", reponse: "", dateReponse: "", decision: "" })); if (lines.length) { save({ type: "Questionnement", id: "", action: `${lines.length} remise(s) en question enregistrée(s) depuis le rapport ${r.id}` }); toast(lines.length + " questionnement(s) enregistré(s)"); } };
   $("#rsave", wrap).onclick = () => { upd(); r.date = todayIso(); const o = clone(r); delete o.historique; delete o.ref; const i = S.rapports.findIndex(x => x.id === o.id); if (i >= 0) S.rapports[i] = o; else S.rapports.unshift(o); S.rapports.sort((a, b) => b.id.localeCompare(a.id)); save({ type: "Rapport", id: o.id, action: i >= 0 ? "Mise à jour" : "Création" }); toast("Rapport " + o.id + " enregistré"); };
@@ -141,12 +149,35 @@ function vRapports() {
 }
 
 /* ---------- Budget */
+let budgetYear = null;
+function copyText(txt, name) {
+  const done = () => toast("Extrait copié — collez-le dans votre rapport");
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done, () => download(name, txt, "text/markdown;charset=utf-8"));
+  else download(name, txt, "text/markdown;charset=utf-8");
+}
 function vBudget() {
-  const T = k => S.budget.reduce((s, b) => s + (Number(b[k]) || 0), 0), p = T("prevu"), e = T("engage"), c = T("consomme"), env = S.meta.budget || 10000;
-  const wrap = el(`<p class="muted intro">Enveloppe de CHF ${chf(env)} pour le design finalisé, l'ensemble des livrables et la gestion de projet. Répartition indicative à valider en G0 ; le temps interne n'y est pas imputé (question Q-001).</p>
-    <div class="bento" style="margin-bottom:var(--gap)"><div class="card dark c3 kpi"><div class="v">${chf(env)}</div><div class="l">CHF enveloppe</div></div><div class="card c3 kpi"><div class="v ${p > env ? "red" : ""}">${chf(p)}</div><div class="l">CHF répartis</div></div>
-    <div class="card c3 kpi"><div class="v">${chf(e)}</div><div class="l">CHF engagés (${Math.round(e / env * 100)} %)</div></div><div class="card c3 kpi"><div class="v">${chf(c)}</div><div class="l">CHF consommés (${Math.round(c / env * 100)} %)</div></div></div>`);
-  wrap.appendChild(genericTable("budget", { extraCol: { l: "Engagé / prévu", f: b => b.prevu ? `<div class="prog" style="width:90px"><i style="width:${Math.min(100, Math.round(b.engage / b.prevu * 100))}%"></i></div>` : "—" } }));
+  const Y = budgetYears(); if (!budgetYear || !Y.includes(budgetYear)) budgetYear = Y.includes(+S.meta.budgetAnnee) ? +S.meta.budgetAnnee : (Y[0] || new Date().getFullYear());
+  const B = budgetCalc(budgetYear), d = budgetDecision(), ro = READONLY();
+  const wrap = el(`<p class="muted intro">Budget d'achats du projet, par année et par scénario (Recommandé / Allégé / Minimal), avec la justification de chaque ligne. Le temps de travail interne n'y est pas imputé (Q-001). Réserve pour imprévus de ${Math.round(B.r * 100)} % calculée automatiquement. Source détaillée : <code>01_CADRAGE/03_Livrables/P0_Budget-2027_v0.1.xlsx</code>.</p>
+    <div class="bar no-print"><label for="by" style="margin:0">Année</label><select id="by">${Y.map(y => `<option ${y === budgetYear ? "selected" : ""}>${y}</option>`).join("")}</select>
+      <label for="bsc" style="margin:0 0 0 12px">Scénario retenu</label><select id="bsc" ${ro ? "disabled" : ""}><option value="">À arbitrer${d ? " (" + esc(d.id) + ")" : ""}</option>${SCENARIOS.map(s => `<option ${S.meta.budgetScenario === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+      <span class="grow"></span><button class="btn sec sm" id="bcopy">Copier la synthèse</button><button class="btn sec sm" id="bcopyd">Copier synthèse + détail</button><button class="btn sec sm" id="bnote">Exporter la note (.md)</button><button class="btn sec sm" id="bprint">Imprimer / PDF</button></div>
+    <div class="bento" style="margin-bottom:var(--gap)">
+      <div class="card dark c3 kpi"><div class="v">${chf(B.total)}</div><div class="l">CHF ${B.annee} · scénario ${esc(B.ref)}${S.meta.budgetScenario ? "" : " (référence)"}</div></div>
+      <div class="card c3 kpi"><div class="v ${B.env && B.total > B.env ? "red" : ""}">${B.env ? (B.total > B.env ? "+" : "−") + chf(Math.abs(B.total - B.env)) : "—"}</div><div class="l">${B.env ? `CHF d'écart / enveloppe ${chf(B.env)}` : "Pas d'enveloppe définie pour cette année"}</div></div>
+      <div class="card c3 kpi"><div class="v">${chf(B.eng)}</div><div class="l">CHF engagés (${B.total ? Math.round(B.eng / B.total * 100) : 0} %)</div></div>
+      <div class="card c3 kpi"><div class="v">${chf(B.con)}</div><div class="l">CHF consommés (${B.total ? Math.round(B.con / B.total * 100) : 0} %)</div></div>
+      <div class="card c7 md"><div id="bsyn"></div></div><div class="card c5 md"><div id="bplu"></div></div></div>`);
+  $("#bsyn", wrap).innerHTML = mdToHtml(budgetMd(budgetYear));
+  $("#bplu", wrap).innerHTML = mdToHtml(budgetPluriMd() || "### Vision pluriannuelle\n\nUne seule année saisie.");
+  wrap.appendChild(genericTable("budget", { stateKey: "budget-" + budgetYear, filter: b => +b.annee === +budgetYear, preset: { annee: budgetYear, statut: "Proposé", scenarios: "Recommandé, Allégé, Minimal" },
+    extraCol: { l: "Engagé / prévu", f: b => b.prevu ? `<div class="prog" style="width:90px"><i style="width:${Math.min(100, Math.round(b.engage / b.prevu * 100))}%"></i></div>` : "—" } }));
+  $("#by", wrap).onchange = e => { budgetYear = +e.target.value; render(); };
+  $("#bsc", wrap).onchange = e => { const v = e.target.value, old = S.meta.budgetScenario || "à arbitrer"; S.meta.budgetScenario = v; save({ type: "Budget", id: d ? d.id : "", resume: "Scénario budgétaire retenu", action: `Scénario : « ${old} » → « ${v || "à arbitrer"} »` }); render(); };
+  $("#bcopy", wrap).onclick = () => copyText(budgetMd(budgetYear), `Budget-${budgetYear}_synthese.md`);
+  $("#bcopyd", wrap).onclick = () => copyText(budgetMd(budgetYear, { detail: true }) + "\n" + budgetPluriMd(), `Budget-${budgetYear}_detail.md`);
+  $("#bnote", wrap).onclick = () => download(`HEPVD_Note-budgetaire_${todayIso()}.md`, budgetNoteMd(), "text/markdown;charset=utf-8");
+  $("#bprint", wrap).onclick = () => window.print();
   return wrap;
 }
 /* ---------- RACI */

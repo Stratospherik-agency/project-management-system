@@ -29,7 +29,7 @@ const VIEWS = [
   { id: "systemes", t: "Systèmes & API", ic: "⇄", f: () => vTable("systemes", "Inventaire des systèmes connectés. Inventaire complet prévu en P6 (étape ultérieure).") },
   { id: "agents", t: "Agents IA", ic: "✦", f: () => vAgents() },
   { grp: "Rendre compte" },
-  { id: "rapports", t: "Rapports hebdo", ic: "✎", f: () => vRapports() },
+  { id: "rapports", t: "Rapports", ic: "✎", f: () => vRapports() },
   { id: "donnees", t: "Données & paramètres", ic: "⚙", f: () => vDonnees() },
 ];
 function route() { const h = (location.hash || "#overview").slice(1).split("/"); return { v: h[0], p: decodeURIComponent(h[1] || "") }; }
@@ -64,7 +64,7 @@ function vOverview() {
   const dsPub = S.dsVersions.filter(v => v.statut === "Publiée").sort((a, b) => pd(b.date) - pd(a.date))[0], dsNext = S.dsVersions.filter(v => v.statut !== "Publiée" && v.statut !== "Retirée").sort((a, b) => pd(a.date) - pd(b.date))[0];
   const docsEx = S.documents.filter(d => d.statut !== "Prévu").length, livr = S.documents.filter(d => d.livrable), livrV = livr.filter(d => d.statut === "Validé").length;
   const soon = S.taches.filter(t => !isDone(t) && ((pd(t.debut) >= now && pd(t.debut) <= now + 14 * DAY) || (pd(t.fin) >= now && pd(t.fin) <= now + 14 * DAY))).sort((a, b) => pd(a.fin) - pd(b.fin));
-  const P = S.budget.reduce((s, b) => s + (+b.prevu || 0), 0), E = S.budget.reduce((s, b) => s + (+b.engage || 0), 0);
+  const BC = budgetCalc(S.meta.budgetAnnee || 2027), P = BC.total, E = BC.eng;
   const span = pd(S.meta.fin) - pd(S.meta.debut), elapsed = Math.max(0, Math.min(100, Math.round((now - pd(S.meta.debut)) / span * 100)));
   return `<div class="bento">
   <div class="card dark c3 kpi"><div class="v">${g} %</div><div class="l">Avancement réel (pondéré)<br>Prévu à date : ${pl} %</div></div>
@@ -89,7 +89,7 @@ function vOverview() {
   <div class="card c3 kpi"><h3>Design System</h3><div class="v">v${esc(dsPub ? dsPub.version : "—")}</div><div class="l">publiée · prochaine v${esc(dsNext ? dsNext.version : "—")} le ${dsNext ? fds(dsNext.date) : "—"} · <a href="#ds">suivre</a></div></div>
   <div class="card c3 kpi"><h3>Documents</h3><div class="v">${docsEx}</div><div class="l">existants · livrables validés ${livrV}/${livr.length} · <a href="#documents">rechercher</a></div></div>
   <div class="card c6"><h2>Risques principaux</h2>${openR.sort((a, b) => score(b) - score(a)).slice(0, 5).map(r => `<div class="li">${sevTag(score(r))}<span><a href="#" data-risk="${r.id}">${esc(r.titre)}</a><br><span class="small muted">${r.id} · ${esc(roleShort(r.proprietaire))} · signal : ${esc(r.declencheur || "—")}</span></span></div>`).join("")}</div>
-  <div class="card c6"><h2>Budget (CHF ${chf(P)})</h2><div class="prog big"><i style="width:${P ? Math.min(100, E / P * 100) : 0}%"></i></div><p class="small">Engagé : CHF ${chf(E)} (${P ? Math.round(E / P * 100) : 0} %)</p>${S.budget.map(b => `<div class="li small"><span>${esc(b.poste)}</span><span class="ml">${chf(b.engage)} / ${chf(b.prevu)}</span></div>`).join("")}</div>
+  <div class="card c6"><h2>Budget ${BC.annee} (CHF ${chf(P)})</h2><p class="small">Scénario ${S.meta.budgetScenario ? "retenu : <b>" + esc(S.meta.budgetScenario) + "</b>" : "de référence : <b>" + esc(BC.ref) + "</b> (à arbitrer)"}${BC.env ? ` · enveloppe CHF ${chf(BC.env)}${P > BC.env ? ` · <span class="red">dépassement CHF ${chf(P - BC.env)}</span>` : ""}` : ""}</p><div class="prog big"><i style="width:${P ? Math.min(100, E / P * 100) : 0}%"></i></div><p class="small">Engagé : CHF ${chf(E)} (${P ? Math.round(E / P * 100) : 0} %)</p>${BC.cats.map(c => `<div class="li small"><span>${esc(c)}</span><span class="ml">${chf(BC.sc[BC.ref].by[c])}</span></div>`).join("")}<p style="margin-top:12px"><a class="btn sec sm" href="#budget">Détail et scénarios</a></p></div>
   </div>`;
 }
 
