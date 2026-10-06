@@ -17,7 +17,7 @@
         <label for="code">Code d'installation</label><input id="code" autocomplete="off">
         <label for="nom">Prénom et nom</label><input id="nom" autocomplete="name">
       </div>
-      <label for="login">Identifiant</label><input id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="login">Identifiant (adresse e-mail ou nom d'utilisateur)</label><input id="login" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label for="password">Mot de passe</label><input id="password" type="password" autocomplete="current-password" required>
       <p class="small muted" id="pwHint" hidden>12 caractères minimum.</p>
       <p class="err" id="err" role="alert"></p>

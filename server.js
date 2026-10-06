@@ -98,7 +98,7 @@ const saveUsers = () => wJ(USERS_F, { users: USERS });
 const saveSess = () => { const t = Date.now(); Object.keys(SESS).forEach(k => { if (SESS[k].exp < t) delete SESS[k]; }); wJ(SESS_F, SESS); };
 const ROLES = ["admin", "editeur", "lecteur"];
 const validPw = pw => typeof pw === "string" && pw.length >= 12;
-const validLogin = l => typeof l === "string" && /^[a-z0-9._-]{2,40}$/.test(l);
+const validLogin = l => typeof l === "string" && (/^[a-z0-9._-]{2,40}$/.test(l) || /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(l) && l.length <= 120);
 let SETUP_CODE = null;
 const CODE_F = path.join(DATA_DIR, "CODE-INSTALLATION.txt");
 if (!OPEN && !PROXY && !USERS.length) {
@@ -168,9 +168,9 @@ http.createServer(async (req, res) => {
     if (p === "/api/installation" && req.method === "POST") {
       if (!SETUP_CODE) return send(req, res, 409, { error: "Déjà installé" });
       if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
-      const b = await jbody(req);
+      const b = await jbody(req); b.login = String(b.login || "").trim().toLowerCase();
       if (String(b.code || "").trim().toUpperCase() !== SETUP_CODE) { fail(ip); return send(req, res, 403, { error: "Code d'installation incorrect (voir la console du serveur)." }); }
-      if (!validLogin(b.login)) return send(req, res, 400, { error: "Identifiant : 2 à 40 caractères parmi a-z, 0-9, point, tiret." });
+      if (!validLogin(b.login)) return send(req, res, 400, { error: "Identifiant : une adresse e-mail, ou 2 à 40 caractères parmi a-z, 0-9, point, tiret." });
       if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." });
       const salt = crypto.randomBytes(16).toString("hex");
       USERS.push({ login: b.login, nom: String(b.nom || b.login).slice(0, 80), role: "admin", salt, hash: hashPw(b.password, salt), cree: now(), actif: true });
@@ -226,7 +226,7 @@ http.createServer(async (req, res) => {
       if (req.method === "GET") return send(req, res, 200, { utilisateurs: USERS.map(pubUser) });
       if (req.method === "POST") {
         const b = await jbody(req); b.login = String(b.login || "").trim().toLowerCase();
-        if (!validLogin(b.login) || USERS.some(x => x.login === b.login)) return send(req, res, 400, { error: "Identifiant invalide ou déjà utilisé." });
+        if (!validLogin(b.login) || USERS.some(x => x.login === b.login)) return send(req, res, 400, { error: "Identifiant invalide (adresse e-mail, ou a-z, 0-9, point, tiret) ou déjà utilisé." });
         if (!ROLES.includes(b.role)) return send(req, res, 400, { error: "Rôle invalide" });
         if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." });
         const salt = crypto.randomBytes(16).toString("hex"); USERS.push({ login: b.login, nom: String(b.nom || b.login).slice(0, 80), role: b.role, salt, hash: hashPw(b.password, salt), cree: now(), actif: true }); saveUsers();
