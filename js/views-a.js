@@ -104,10 +104,15 @@ function vOverview() {
 /* ---------- Phases */
 function vPhases() {
   const F = forecast(), G = gateForecasts(F);
-  return `<p class="muted intro">Chaque phase a son tableau de bord : étapes, documents liés à chaque étape, livrables, critères du gate, risques, décisions et questions.</p><div class="bento">${S.phases.map(p => {
+  const card = p => {
     const pr = phaseProgress(p.id), ts = S.taches.filter(t => t.phase === p.id), dc = S.documents.filter(d => d.phase === p.id), gf = G.find(x => x.j.phase === p.id && x.j.type === "Gate");
     return `<a class="card c4 phasecard" href="#phase/${p.id}" style="border-top:6px solid ${p.couleur}"><div class="small muted">${p.id} · ${fds(p.debut)} → ${fds(p.fin)}</div><h3 style="margin:4px 0 8px">${esc(p.nom)}</h3><div class="prog"><i style="width:${pr}%;background:${p.couleur}"></i></div>
-      <div class="small" style="margin-top:8px">${pr} % · ${ts.length} étapes · ${dc.length} documents${gf ? ` · ${gf.j.id} prévu ${fds(gf.fc)}` : ""}</div></a>`; }).join("")}</div>`;
+      <div class="small" style="margin-top:8px">${pr} % · ${ts.length} étapes · ${dc.length} documents${gf ? ` · ${gf.j.id} prévu ${fds(gf.fc)}` : ""}</div></a>`; };
+  const etapes = [...new Set(S.phases.map(p => p.etape || ""))];
+  const info = n => (S.meta.etapes || []).find(e => e.nom === n);
+  return `<p class="muted intro">Chaque phase a son tableau de bord : étapes, documents liés à chaque étape, livrables, critères du gate, risques, décisions et questions.</p>` +
+    etapes.map(e => { const i = info(e), ps = S.phases.filter(p => (p.etape || "") === e);
+      return `${e ? `<div class="etape-h"><h2>${esc(e)}</h2><span class="small muted">${esc(i ? i.periode + " · " + i.phases : "")}</span>${i ? `<p class="small">${esc(i.resume)}</p>` : ""}</div>` : ""}<div class="bento" style="margin-bottom:var(--gap)">${ps.map(card).join("")}</div>`; }).join("");
 }
 function vPhase(pid) {
   const p = S.phases.find(x => x.id === pid); if (!p) return "<p>Phase inconnue.</p>";
