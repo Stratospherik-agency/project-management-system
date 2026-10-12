@@ -31,14 +31,22 @@ const VIEWS = [
   { grp: "Rendre compte" },
   { id: "rapports", t: "Rapports", ic: "✎", f: () => vRapports() },
   { id: "donnees", t: "Données & paramètres", ic: "⚙", f: () => vDonnees() },
+  { grp: "Administration", show: () => SERVER && ROLE === "admin" },
+  { id: "admin", t: "Console d'administration", ic: "✉", f: () => vAdmin(), show: () => SERVER && ROLE === "admin" },
 ];
+const OUVRIR = { taches: "taches", decisions: "decisions", questions: "questions", actions: "actions", risques: "risques", documents: "documents" };
 function route() { const h = (location.hash || "#overview").slice(1).split("/"); return { v: h[0], p: decodeURIComponent(h[1] || "") }; }
 function nav() {
   const cur = route().v === "phase" ? "phases" : route().v;
-  $("#nav").innerHTML = VIEWS.map(v => v.grp ? `<div class="grp">${v.grp}</div>` : `<a href="#${v.id}" ${v.id === cur ? 'aria-current="page"' : ""}><span class="ic" aria-hidden="true">${v.ic}</span>${v.t}${v.n && v.n() ? `<span class="n">${v.n()}</span>` : ""}</a>`).join("");
+  $("#nav").innerHTML = VIEWS.filter(v => !v.show || v.show()).map(v => v.grp ? `<div class="grp">${v.grp}</div>` : `<a href="#${v.id}" ${v.id === cur ? 'aria-current="page"' : ""}><span class="ic" aria-hidden="true">${v.ic}</span>${v.t}${v.n && v.n() ? `<span class="n">${v.n()}</span>` : ""}</a>`).join("");
 }
 function render() {
-  const r = route();
+  let r = route();
+  if (r.v === "ouvrir") { /* lien profond depuis un e-mail : #ouvrir/<collection>/<id> */
+    const h = (location.hash || "").slice(1).split("/"), col = h[1], id = decodeURIComponent(h[2] || ""), view = OUVRIR[col] || "overview";
+    history.replaceState(null, "", "#" + view); r = route();
+    setTimeout(() => { const it = (S[col] || []).find(x => x.id === id); if (!it) return toast(`${id} introuvable`); if (col === "risques" && typeof openRisk === "function") openRisk(it); else if (col === "documents" && typeof openDoc === "function") openDoc(it); else editItem(col, it); }, 50);
+  }
   const v = r.v === "phase" ? { t: "Phase " + r.p, f: () => vPhase(r.p) } : (VIEWS.find(x => x.id === r.v) || VIEWS[1]);
   $("#viewTitle").textContent = v.t === "Phase " + r.p ? `${r.p} — ${phase(r.p).nom}` : v.t;
   $("#projSub").textContent = `${S.meta.nom || ""} · ${S.meta.copil || ""} · ${S.meta.statut || ""}`;

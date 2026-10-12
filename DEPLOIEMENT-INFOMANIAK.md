@@ -1,6 +1,6 @@
 # Déploiement sur Infomaniak — projectmanagement.stratospherik.ch
 
-Version 0.3 · 05.10.2026
+Version 0.4 · 12.10.2026
 
 La plateforme est une application Node.js **sans dépendance** (aucun `npm install` nécessaire). Elle écoute sur le port fourni par Infomaniak (variable `PORT`), stocke ses données dans une base SQLite **hors du dépôt Git**, et exige une connexion (comptes administrateur / éditeur / lecteur).
 
@@ -86,6 +86,22 @@ Transmettre le mot de passe initial par un canal séparé ; chacun le change dan
 3. Dans le Manager : redéployer / redémarrer l'application (ou déploiement automatique si activé).
 
 Les données ne sont jamais écrasées par une mise à jour du code. `data/projet-data.js` ne sert qu'à initialiser une base vide.
+
+## Notifications par e-mail (v0.4)
+
+Console : *Administration → Console d'administration* (comptes administrateurs uniquement).
+
+1. **Créer une adresse d'envoi** dans le Service Mail Infomaniak, par ex. `pilotage@stratospherik.ch`.
+2. Onglet **Messagerie** : serveur `mail.infomaniak.com`, sécurité *SSL/TLS* (port 465), identifiant = l'adresse complète, mot de passe de cette adresse, adresse d'expédition = la même. Enregistrer, puis **Envoyer un test**.
+3. Onglet **Destinataires** : une ou plusieurs adresses par rôle (CDP, UI, UX…), rôles « Pilotage », administrateurs, rythme de réception par personne.
+4. Onglet **Notifications** : activer / désactiver et régler chacune des 34 notifications.
+5. Onglet **Calendrier d'envoi** : heures du résumé du matin, du plan du lundi, du rappel du rapport ; jours fériés et pauses.
+6. Onglet **Aperçu & journal** : voir ce que chacun recevrait aujourd'hui, envoyer manuellement, consulter le journal des envois.
+7. Revenir sur *Messagerie* et **activer l'envoi**.
+
+Fichiers créés dans le dossier de données (hors dépôt, droits 600) : `notifications.json` (configuration, mot de passe SMTP), `notifications-etat.json`, `notifications-journal.ndjson`.
+Option plus sûre : définir la variable d'environnement `SMTP_PASSWORD` dans le Manager (le mot de passe n'est alors jamais écrit sur disque).
+L'application doit rester démarrée en permanence pour que les envois planifiés partent (planificateur interne, vérification chaque minute, fuseau Europe/Zurich).
 
 ## Sauvegardes
 

@@ -1,4 +1,4 @@
-/* Serveur de la plateforme de pilotage — Refonte web HEP Vaud (v0.3)
+/* Serveur de la plateforme de pilotage — Refonte web HEP Vaud (v0.4)
  * Node.js ≥ 18, aucune dépendance. Base SQLite intégrée (node:sqlite, Node ≥ 22.13), sinon stockage JSON.
  *
  * Fonctions : données du projet, journal complet, instantanés horaires, fichiers versionnés (SHA-256),
@@ -14,6 +14,8 @@
  *   --code-installation=CODE  SETUP_CODE  (code choisi pour créer le premier compte quand aucune console n'est accessible ;
  *                                          ignoré dès qu'un compte existe)
  * Journal du serveur : <données>/serveur.log (consultable par FTP / gestionnaire de fichiers).
+ * Notifications par e-mail : configurées dans la Console d'administration (serveur/notifications.js) ;
+ *   SMTP_PASSWORD (variable d'environnement, facultatif) remplace le mot de passe SMTP saisi dans la console.
  */
 "use strict";
 const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
@@ -107,9 +109,11 @@ if (!OPEN && !PROXY && !USERS.length) {
   if (fixed && fixed.length < 8) console.error("--code-installation ignoré : 8 caractères minimum. Un code aléatoire a été généré.");
   try { fs.writeFileSync(CODE_F, `Code d'installation : ${fixed.length >= 8 ? "(celui indiqué dans la commande d'exécution)" : SETUP_CODE}\nGénéré le ${new Date().toISOString()}. Ce fichier est supprimé après la création du premier compte.\n`, { mode: 0o600 }); } catch (e) { }
 } else { try { fs.unlinkSync(CODE_F); } catch (e) { } }
+const NOTIF = require("./serveur/notifications.js")({ DATA_DIR, APP, store });
 const fails = {}; // limitation des tentatives
 const tooMany = ip => { const f = fails[ip]; return f && f.n >= 8 && Date.now() - f.t < 15 * 60e3; };
-const fail = ip => { const f = fails[ip] || { n: 0, t: Date.now() }; if (Date.now() - f.t > 15 * 60e3) { f.n = 0; f.t = Date.now(); } f.n++; fails[ip] = f; };
+const fail = (ip, login) => { const f = fails[ip] || { n: 0, t: Date.now() }; if (Date.now() - f.t > 15 * 60e3) { f.n = 0; f.t = Date.now(); } f.n++; fails[ip] = f;
+  if (f.n === 8) { console.log(`Connexion bloquée 15 min pour ${ip}${login ? " (identifiant « " + login + " »)" : ""}.`); NOTIF.securite("blocage", { titre: "Connexions bloquées pendant 15 minutes", detail: `8 échecs de connexion depuis l'adresse ${ip}${login ? ", identifiant saisi : « " + login + " »" : ""}. Si ce n'est pas un utilisateur connu, vérifier les comptes et les mots de passe.` }); } };
 function cookies(req) { const o = {}; (req.headers.cookie || "").split(";").forEach(c => { const i = c.indexOf("="); if (i > 0) o[c.slice(0, i).trim()] = decodeURIComponent(c.slice(i + 1).trim()); }); return o; }
 const isHttps = req => req.headers["x-forwarded-proto"] === "https" || !!req.socket.encrypted;
 function setSession(req, res, login) {
@@ -182,7 +186,7 @@ http.createServer(async (req, res) => {
     if (p === "/api/connexion" && req.method === "POST") {
       if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
       const b = await jbody(req); const usr = USERS.find(x => x.login === String(b.login || "").trim().toLowerCase() && x.actif !== false);
-      if (!usr || !checkPw(usr, b.password || "")) { fail(ip); return send(req, res, 401, { error: "Identifiant ou mot de passe incorrect." }); }
+      if (!usr || !checkPw(usr, b.password || "")) { fail(ip, String(b.login || "").trim().toLowerCase().slice(0, 120)); return send(req, res, 401, { error: "Identifiant ou mot de passe incorrect." }); }
       usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login); return send(req, res, 200, { ok: true });
     }
     if (p === "/api/deconnexion" && req.method === "POST") { const t = cookies(req).hepvd_s; if (t) { delete SESS[t]; saveSess(); } res.setHeader("Set-Cookie", "hepvd_s=; Path=/; Max-Age=0"); return send(req, res, 200, { ok: true }); }
@@ -199,6 +203,7 @@ http.createServer(async (req, res) => {
       if ((b.rev || 0) !== rev) return send(req, res, 409, { rev });
       if (!b.data || !Array.isArray(b.data.taches) || !Array.isArray(b.data.phases)) return send(req, res, 400, { error: "données invalides" });
       store.put(rev + 1, JSON.stringify(b.data), me.nom, b.journal || []);
+      NOTIF.changement();
       return send(req, res, 200, { rev: rev + 1 });
     }
     if (p === "/api/snapshots") return send(req, res, 200, { snapshots: store.snapshots() });
@@ -220,6 +225,10 @@ http.createServer(async (req, res) => {
       if (!validPw(b.nouveau)) return send(req, res, 400, { error: "Nouveau mot de passe : 12 caractères minimum." });
       usr.salt = crypto.randomBytes(16).toString("hex"); usr.hash = hashPw(b.nouveau, usr.salt); saveUsers(); return send(req, res, 200, { ok: true });
     }
+    if (p === "/api/admin/notifications" || p.startsWith("/api/admin/notifications/")) {
+      if (!isAdmin) return send(req, res, 403, { error: "Réservé aux administrateurs" });
+      return NOTIF.api(req, res, p, { send, jbody, me });
+    }
     if (p === "/api/utilisateurs" || p.startsWith("/api/utilisateurs/")) {
       if (!isAdmin || OPEN) return send(req, res, 403, { error: "Réservé aux administrateurs" });
       const login = p.split("/")[3];
@@ -230,6 +239,7 @@ http.createServer(async (req, res) => {
         if (!ROLES.includes(b.role)) return send(req, res, 400, { error: "Rôle invalide" });
         if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." });
         const salt = crypto.randomBytes(16).toString("hex"); USERS.push({ login: b.login, nom: String(b.nom || b.login).slice(0, 80), role: b.role, salt, hash: hashPw(b.password, salt), cree: now(), actif: true }); saveUsers();
+        NOTIF.securite("compte", { titre: `Compte créé : ${b.login}`, detail: `Rôle « ${b.role} », créé par ${me.nom}.` });
         return send(req, res, 200, { ok: true });
       }
       const usr = USERS.find(x => x.login === login); if (!usr) return send(req, res, 404, { error: "Inconnu" });
@@ -239,7 +249,10 @@ http.createServer(async (req, res) => {
         if (b.role) { if (!ROLES.includes(b.role)) return send(req, res, 400, { error: "Rôle invalide" }); if (usr.login === me.login && b.role !== "admin") return send(req, res, 400, { error: "Vous ne pouvez pas retirer vos propres droits d'administration." }); usr.role = b.role; }
         if (typeof b.actif === "boolean") { if (usr.login === me.login && !b.actif) return send(req, res, 400, { error: "Vous ne pouvez pas désactiver votre propre compte." }); usr.actif = b.actif; if (!b.actif) Object.keys(SESS).forEach(k => { if (SESS[k].login === usr.login) delete SESS[k]; }); saveSess(); }
         if (b.password) { if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." }); usr.salt = crypto.randomBytes(16).toString("hex"); usr.hash = hashPw(b.password, usr.salt); }
-        saveUsers(); return send(req, res, 200, { ok: true });
+        saveUsers();
+        const chg = [b.role ? `rôle « ${b.role} »` : "", typeof b.actif === "boolean" ? (b.actif ? "réactivé" : "désactivé") : "", b.password ? "mot de passe réinitialisé" : "", b.nom ? "nom modifié" : ""].filter(Boolean).join(", ");
+        if (b.role || typeof b.actif === "boolean" || b.password) NOTIF.securite("compte", { titre: `Compte modifié : ${usr.login}`, detail: `${chg} — par ${me.nom}.` });
+        return send(req, res, 200, { ok: true });
       }
       return send(req, res, 405, {});
     }
@@ -248,10 +261,10 @@ http.createServer(async (req, res) => {
     if (p.startsWith("/projet/")) { if (!PROJECT_ROOT) return send(req, res, 404, "Dossier projet non configuré", "text/plain; charset=utf-8"); const f = inside(PROJECT_ROOT, p.slice(8)); if (!f || f.startsWith(DATA_DIR)) return send(req, res, 403, "Interdit", "text/plain"); return serveFile(req, res, f); }
     const f = inside(APP, p === "/" ? "index.html" : p.slice(1));
     const rel = f ? path.relative(APP, f).split(path.sep).join("/") : "";
-    if (!f || f.startsWith(DATA_DIR + path.sep) && !/^data\/projet-data\.js$/.test(rel) || /^(data\/(?!projet-data\.js)|\.git|node_modules)|(^|\/)\.|\.(sqlite|ndjson|command)$|^server\.js$|^package(-lock)?\.json$/.test(rel)) return send(req, res, 403, "Interdit", "text/plain; charset=utf-8");
+    if (!f || f.startsWith(DATA_DIR + path.sep) && !/^data\/projet-data\.js$/.test(rel) || /^(data\/(?!projet-data\.js)|\.git|node_modules|serveur\/)|(^|\/)\.|\.(sqlite|ndjson|command)$|^server\.js$|^package(-lock)?\.json$/.test(rel)) return send(req, res, 403, "Interdit", "text/plain; charset=utf-8");
     return serveFile(req, res, f);
   } catch (e) { console.error(e); send(req, res, 500, { error: "Erreur serveur" }); }
 }).listen(PORT, HOST, () => {
-  console.log(`Plateforme HEPVD v0.3.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? " · dossier projet : " + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
+  console.log(`Plateforme HEPVD v0.4.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? " · dossier projet : " + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
   if (SETUP_CODE) console.log(`\n=== PREMIÈRE INSTALLATION ===\nOuvrez le site et saisissez le code d'installation${ARGS["code-installation"] || process.env.SETUP_CODE ? " indiqué dans la commande d'exécution" : " : " + SETUP_CODE + " (aussi dans " + CODE_F + ")"}\n`);
 });
