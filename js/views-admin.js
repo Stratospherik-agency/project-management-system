@@ -33,13 +33,13 @@ function admRender(root) {
       <div class="card c3 kpi"><div class="v">${nbDest}</div><div class="l">adresse(s) de destinataires${ADM.sansDestinataire.length ? ` · <span class="red">${ADM.sansDestinataire.length} rôle(s) sans adresse</span>` : ""}</div></div>
       <div class="card c3 kpi"><div class="v">${on}<small> / ${n}</small></div><div class="l">notifications activées</div></div>
     </div>
-    <div class="bar adm-bar"><span class="grow">${tabs("adm", [["messagerie", "Messagerie"], ["calendrier", "Calendrier d'envoi"], ["destinataires", "Destinataires"], ["regles", "Notifications"], ["apercu", "Aperçu & journal"]], admTab)}</span>
+    <div class="bar adm-bar"><span class="grow">${tabs("adm", [["messagerie", "Messagerie"], ["calendrier", "Calendrier d'envoi"], ["destinataires", "Destinataires"], ["regles", "Notifications"], ["apercu", "Aperçu & journal"], ["sync", "Synchronisation du dossier"]], admTab)}</span>
       <span class="small muted" id="admState">${admDirty ? "Modifications non enregistrées" : "Enregistré"}</span><button class="btn sm" id="admSave" ${admDirty ? "" : "disabled"}>${admDirty ? "Enregistrer les modifications" : "Enregistré"}</button></div>
     <div id="admBody"></div>`;
   bindTabs(root, "adm", k => { admTab = k; admRender(root); });
   $("#admSave", root).onclick = () => admSave(root);
   const b = $("#admBody", root);
-  ({ messagerie: admMessagerie, calendrier: admCalendrier, destinataires: admDest, regles: admRegles, apercu: admApercuView })[admTab](b, root);
+  ({ messagerie: admMessagerie, calendrier: admCalendrier, destinataires: admDest, regles: admRegles, apercu: admApercuView, sync: admSync })[admTab](b, root);
   const dirty = e => { if (!e.target.closest(".no-dirty")) admMark(); }; b.addEventListener("input", dirty); b.addEventListener("change", dirty);
 }
 async function admSave(root) {
@@ -198,4 +198,36 @@ function admApercuView(b) {
     $("#jrList", b).innerHTML = L.length ? `<div class="tw flat"><table><thead><tr><th>Date</th><th>Type</th><th>Destinataire</th><th>Sujet</th><th>Résultat</th></tr></thead><tbody>${L.map(x => `<tr class="static"><td class="nowrap">${fdt(x.ts)}</td><td>${esc(TL[x.type] || x.type)}</td><td>${esc(x.to)}</td><td>${esc(x.sujet)}</td><td>${x.ok ? tag("Envoyé", "st-termine") : tag("Échec", "st-bloque") + ` <span class="small">${esc(x.erreur)}</span>`}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Aucun envoi pour le moment.</p>';
   };
   $("#jrRef", b).onclick = loadJ; loadJ();
+}
+
+/* ---------- Synchronisation du dossier projet */
+function admSync(b) {
+  b.classList.add("no-dirty");
+  b.innerHTML = `<div class="bento no-dirty"><div class="card c12" id="syEtat"><p class="muted">Chargement…</p></div></div>`;
+  const charger = async () => {
+    const r = await apiFetch("admin/sync"); const j = await r.json().catch(() => ({}));
+    const box = $("#syEtat", b);
+    if (!r.ok) { box.innerHTML = `<p class="red">${esc(j.error || "Erreur")}</p>`; return; }
+    if (!j.miroir) { box.innerHTML = `<h2>Synchronisation</h2><p>La plateforme lit directement le dossier projet de cet ordinateur : aucune synchronisation n'est nécessaire.</p>`; return; }
+    const actifs = j.jetons.filter(x => !x.revoque);
+    box.outerHTML = `<div class="card c7"><h2>Dossier projet en ligne</h2>
+        <p><b>${j.fichiers}</b> fichier(s) en ligne · ${tailleF(j.octets || 0)}. Consultation : <a href="#fichiers">Dossier projet</a>.</p>
+        <h3 style="margin-top:16px">Mise en place (une fois, sur le Mac)</h3>
+        <ol class="small" style="padding-left:20px;line-height:1.7"><li>Créer un jeton ci-contre et le copier.</li><li>Double-cliquer <code>00_PILOTAGE/Tableau-de-bord/Synchroniser-le-projet.command</code> (Terminal), coller l'adresse du site et le jeton : ils sont enregistrés dans <code>~/.hepvd-synchronisation.json</code>, jamais dans Git.</li><li>Ensuite, un double-clic suffit : seuls les fichiers nouveaux ou modifiés sont envoyés ; les fichiers supprimés sur le Mac sont retirés du site (conservés dans une corbeille sur le serveur).</li><li>Synchronisation automatique chaque soir : dans le Terminal, <code>node outils/synchroniser.js --planifier=18:30</code> depuis le dossier Tableau-de-bord.</li></ol>
+        <p class="small muted">Le dossier <code>Tableau-de-bord</code> (code) n'est jamais envoyé. Options : <code>--simulation</code> (voir sans envoyer), <code>--sans-suppression</code>, <code>--configurer</code>, <code>--deplanifier</code>.</p></div>
+      <div class="card c5"><h2>Jetons de synchronisation</h2>
+        <div class="row"><input id="syNom" placeholder="Nom (ex. MacBook U-Com)" style="flex:1"><button class="btn sm" id="syNew" type="button">Créer un jeton</button></div>
+        <div id="syTok" style="margin-top:10px"></div>
+        <div class="tw flat" style="margin-top:12px"><table><thead><tr><th>Nom</th><th>Créé</th><th>Dernier usage</th><th></th></tr></thead><tbody>${j.jetons.map(x => `<tr class="static"><td>${esc(x.nom)}${x.revoque ? " " + tag("Révoqué", "st-bloque") : ""}</td><td class="small">${fdt(x.cree)}<br>${esc(x.par || "")}</td><td class="small">${fdt(x.dernierUsage)}</td><td>${x.revoque ? "" : `<button class="btn ghost sm syRev" data-id="${x.id}" type="button">Révoquer</button>`}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">Aucun jeton</td></tr>'}</tbody></table></div>
+        <p class="small muted">${actifs.length} jeton(s) actif(s). Révoquer un jeton perdu ou celui d'un ordinateur remplacé.</p></div>
+      <div class="card c12"><h2>Dernières synchronisations</h2>${j.journal.length ? `<div class="tw flat"><table><thead><tr><th>Date</th><th>Jeton</th><th>Envoyés</th><th>Retirés</th><th>Volume</th><th>Total en ligne</th></tr></thead><tbody>${j.journal.map(x => `<tr class="static"><td class="nowrap">${fdt(x.fin || x.ts)}</td><td>${esc(x.jeton || "")}</td><td>${x.envoyes}</td><td>${x.supprimes}</td><td>${tailleF(x.octets || 0)}</td><td>${x.total}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">Aucune synchronisation pour le moment.</p>'}</div>`;
+    $("#syNew", b).onclick = async () => {
+      const r2 = await apiFetch("admin/sync/jetons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nom: $("#syNom", b).value || "Mac" }) }); const j2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) return toast(j2.error || "Échec");
+      const t = $("#syTok", b); t.innerHTML = `<div class="newv"><b>Copiez ce jeton maintenant</b> : il ne sera plus affiché.<div class="row" style="margin-top:6px"><input id="syVal" readonly value="${esc(j2.jeton)}" style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:12.5px"><button class="btn sm" id="syCopy" type="button">Copier</button></div></div>`;
+      $("#syCopy", b).onclick = () => { const i = $("#syVal", b); i.select(); (navigator.clipboard ? navigator.clipboard.writeText(i.value) : Promise.reject()).then(() => toast("Jeton copié"), () => { document.execCommand("copy"); toast("Jeton copié"); }); };
+    };
+    $$(".syRev", b).forEach(x => x.onclick = async () => { if (!confirm("Révoquer ce jeton ? L'ordinateur qui l'utilise ne pourra plus synchroniser.")) return; await apiFetch("admin/sync/jetons/" + x.dataset.id, { method: "DELETE" }); toast("Jeton révoqué"); admSync(b); });
+  };
+  charger();
 }

@@ -10,7 +10,7 @@ window.PROJECT_DATA = {
   "version": "0.2",
   "maj": "2026-10-05",
   "statut": "Phase 0 — Initialisation & cadrage",
-  "budget": 10000,
+  "budget": 0,
   "perimetre": "hepl.ch (site public) · MyEtu · MyCollab · MyParFo · applications mobiles · intégrations API",
   "contexte": "CMS Jahia 7, migration vers Jahia 8 prévue fin octobre 2026 ; hébergement sur les serveurs internes de la HEP Vaud ; développement interne.",
   "hypothese": "Toutes les dates sont des hypothèses de travail à valider par le Copil - Site internet HEP VAUD (G0). Aucune date de mise en ligne n'est imposée : horizon 2 à 3 ans.",
@@ -327,7 +327,7 @@ window.PROJECT_DATA = {
   {
    "id": "T007",
    "phase": "P0",
-   "nom": "Répartir l'enveloppe budgétaire de CHF 10'000",
+   "nom": "Établir la demande budgétaire et sa répartition",
    "debut": "2026-11-02",
    "fin": "2026-11-20",
    "statut": "À faire",
@@ -1421,7 +1421,7 @@ window.PROJECT_DATA = {
      "ok": false
     },
     {
-     "t": "Répartition du budget de CHF 10'000 validée",
+     "t": "Budget validé",
      "ok": false
     },
     {
@@ -3106,7 +3106,7 @@ window.PROJECT_DATA = {
   },
   {
    "id": "DOC-058",
-   "titre": "Répartition budgétaire CHF 10'000",
+   "titre": "Budget du projet et répartition",
    "chemin": "01_CADRAGE/03_Livrables/P0_Budget_v1.0.xlsx",
    "type": "Tableau",
    "phase": "P0",
@@ -4489,7 +4489,7 @@ window.PROJECT_DATA = {
   },
   {
    "id": "R-002",
-   "titre": "Enveloppe de CHF 10'000 insuffisante pour un Design System et des livrables professionnels",
+   "titre": "Budget accordé insuffisant pour un Design System et des livrables professionnels",
    "categorie": "Budget",
    "cause": "Budget limité pour licences, tests, audits et outils",
    "consequence": "Livrables incomplets, qualité réduite, dépendance au temps interne",
@@ -5195,7 +5195,7 @@ window.PROJECT_DATA = {
   {
    "id": "Q-001",
    "date": "2026-10-05",
-   "question": "Le temps de travail interne (U-Com, DSI) est-il hors de l'enveloppe de CHF 10'000 ?",
+   "question": "Le temps de travail interne (U-Com, DSI) est-il hors du budget du projet ?",
    "categorie": "Budget",
    "phase": "P0",
    "responsable": "CDP",
@@ -7208,7 +7208,7 @@ window.PROJECT_DATA = {
    "user": "Claude (Cowork) pour U-Com",
    "type": "Projet",
    "id": "",
-   "action": "Plateforme v0.2 initialisée : réalisation interne, budget CHF 10'000, Jahia 8, horizon 2–3 ans",
+   "action": "Plateforme v0.2 initialisée : réalisation interne, Jahia 8, horizon 2–3 ans",
    "resume": ""
   }
  ],

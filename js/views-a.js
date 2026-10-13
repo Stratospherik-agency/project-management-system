@@ -10,6 +10,7 @@ const VIEWS = [
   { id: "jalons", t: "Jalons & gates", ic: "◆", f: () => vGates() },
   { grp: "Documents" },
   { id: "documents", t: "Documents", ic: "▣", f: () => vDocuments() },
+  { id: "fichiers", t: "Dossier projet", ic: "▤", f: () => vFichiers(), show: () => SERVER && !!CFG.docsBase },
   { grp: "Risques & anticipation" },
   { id: "anticipation", t: "Anticipation & alertes", ic: "⏱", f: () => vAnticipation(), n: () => alerts().filter(a => a.niv === 3).length },
   { id: "risques", t: "Registre des risques", ic: "⚠", f: () => vRisques(), n: () => S.risques.filter(r => r.statut !== "Clos" && score(r) >= 15).length },
@@ -37,7 +38,7 @@ const VIEWS = [
 const OUVRIR = { taches: "taches", decisions: "decisions", questions: "questions", actions: "actions", risques: "risques", documents: "documents" };
 function route() { const h = (location.hash || "#overview").slice(1).split("/"); return { v: h[0], p: decodeURIComponent(h[1] || "") }; }
 function nav() {
-  const cur = route().v === "phase" ? "phases" : route().v;
+  const cur = route().v === "phase" ? "phases" : route().v === "fichier" ? "fichiers" : route().v;
   $("#nav").innerHTML = VIEWS.filter(v => !v.show || v.show()).map(v => v.grp ? `<div class="grp">${v.grp}</div>` : `<a href="#${v.id}" ${v.id === cur ? 'aria-current="page"' : ""}><span class="ic" aria-hidden="true">${v.ic}</span>${v.t}${v.n && v.n() ? `<span class="n">${v.n()}</span>` : ""}</a>`).join("");
 }
 function render() {
@@ -47,7 +48,8 @@ function render() {
     history.replaceState(null, "", "#" + view); r = route();
     setTimeout(() => { const it = (S[col] || []).find(x => x.id === id); if (!it) return toast(`${id} introuvable`); if (col === "risques" && typeof openRisk === "function") openRisk(it); else if (col === "documents" && typeof openDoc === "function") openDoc(it); else editItem(col, it); }, 50);
   }
-  const v = r.v === "phase" ? { t: "Phase " + r.p, f: () => vPhase(r.p) } : (VIEWS.find(x => x.id === r.v) || VIEWS[1]);
+  const fp = r.v === "fichier" ? decodeURIComponent((location.hash || "").slice("#fichier/".length)) : "";
+  const v = r.v === "phase" ? { t: "Phase " + r.p, f: () => vPhase(r.p) } : r.v === "fichier" ? { t: fp.split("/").pop() || "Fichier", f: () => vFichier(fp) } : (VIEWS.find(x => x.id === r.v) || VIEWS[1]);
   $("#viewTitle").textContent = v.t === "Phase " + r.p ? `${r.p} — ${phase(r.p).nom}` : v.t;
   $("#projSub").textContent = `${S.meta.nom || ""} · ${S.meta.copil || ""} · ${S.meta.statut || ""}`;
   $("#todayPill").textContent = "Aujourd'hui " + fd(todayIso()) + " · S" + isoWeek(TODAY()).week;

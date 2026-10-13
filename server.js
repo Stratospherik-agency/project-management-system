@@ -1,4 +1,4 @@
-/* Serveur de la plateforme de pilotage — Refonte web HEP Vaud (v0.4)
+/* Serveur de la plateforme de pilotage — Refonte web HEP Vaud (v0.5)
  * Node.js ≥ 18, aucune dépendance. Base SQLite intégrée (node:sqlite, Node ≥ 22.13), sinon stockage JSON.
  *
  * Fonctions : données du projet, journal complet, instantanés horaires, fichiers versionnés (SHA-256),
@@ -24,11 +24,16 @@ const APP = __dirname;
 const PORT = +(ARGS.port || process.env.PORT || 8080);
 const HOST = ARGS.host || process.env.HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 const DATA_DIR = path.resolve(APP, ARGS.data || process.env.DATA_DIR || "data");
-const PROJ = ARGS.projet || process.env.PROJECT_ROOT; const PROJECT_ROOT = PROJ ? path.resolve(APP, PROJ) : null;
-const OPEN = !!ARGS["sans-authentification"], PROXY = !!ARGS["auth-proxy"];
+const PROJ = ARGS.projet || process.env.PROJECT_ROOT;
+const OPEN0 = !!ARGS["sans-authentification"];
+/* Sans --projet en mode serveur : miroir du dossier projet alimenté par le script de synchronisation (Synchroniser-le-projet.command). */
+const MIRROR = !PROJ && !OPEN0;
+const PROJECT_ROOT = PROJ ? path.resolve(APP, PROJ) : (MIRROR ? path.resolve(APP, ARGS.data || process.env.DATA_DIR || "data", "projet") : null);
+const OPEN = OPEN0, PROXY = !!ARGS["auth-proxy"];
 if (OPEN && HOST !== "127.0.0.1" && HOST !== "localhost") { console.error("Refus : --sans-authentification n'est autorisé qu'en local (127.0.0.1)."); process.exit(1); }
 const FILES_DIR = path.join(DATA_DIR, "fichiers");
 fs.mkdirSync(FILES_DIR, { recursive: true });
+if (MIRROR) fs.mkdirSync(PROJECT_ROOT, { recursive: true });
 /* journal du serveur dans un fichier (hébergements sans console) */
 const LOG_F = path.join(DATA_DIR, "serveur.log");
 try { if (fs.existsSync(LOG_F) && fs.statSync(LOG_F).size > 2e6) fs.renameSync(LOG_F, LOG_F + ".1"); } catch (e) { }
@@ -110,6 +115,7 @@ if (!OPEN && !PROXY && !USERS.length) {
   try { fs.writeFileSync(CODE_F, `Code d'installation : ${fixed.length >= 8 ? "(celui indiqué dans la commande d'exécution)" : SETUP_CODE}\nGénéré le ${new Date().toISOString()}. Ce fichier est supprimé après la création du premier compte.\n`, { mode: 0o600 }); } catch (e) { }
 } else { try { fs.unlinkSync(CODE_F); } catch (e) { } }
 const NOTIF = require("./serveur/notifications.js")({ DATA_DIR, APP, store });
+const SYNC = require("./serveur/synchronisation.js")({ DATA_DIR, PROJECT_ROOT, MIRROR });
 const fails = {}; // limitation des tentatives
 const tooMany = ip => { const f = fails[ip]; return f && f.n >= 8 && Date.now() - f.t < 15 * 60e3; };
 const fail = (ip, login) => { const f = fails[ip] || { n: 0, t: Date.now() }; if (Date.now() - f.t > 15 * 60e3) { f.n = 0; f.t = Date.now(); } f.n++; fails[ip] = f;
@@ -137,10 +143,12 @@ function send(req, res, code, obj, type) {
 }
 const body = (req, max) => new Promise((ok, ko) => { const ch = []; let n = 0; req.on("data", c => { n += c.length; if (n > max) { ko(new Error("trop volumineux")); req.destroy(); } else ch.push(c); }); req.on("end", () => ok(Buffer.concat(ch))); req.on("error", ko); });
 const jbody = async req => { if (!/application\/json/.test(req.headers["content-type"] || "")) throw new Error("JSON attendu"); return JSON.parse((await body(req, 60e6)).toString("utf8")); };
-function serveFile(req, res, f, inlineName) {
+function serveFile(req, res, f, inlineName, opts) {
+  opts = opts || {};
   fs.stat(f, (err, st) => {
     if (err || !st.isFile()) return send(req, res, 404, "Introuvable", "text/plain; charset=utf-8");
     const h = Object.assign({ "Content-Type": TYPES[path.extname(f).toLowerCase()] || "application/octet-stream", "Content-Length": st.size, "Cache-Control": "no-cache" }, SEC);
+    if (opts.projet) { h["X-Frame-Options"] = "SAMEORIGIN"; h["Content-Security-Policy"] = /\.(html?|svg|xml)$/i.test(f) ? "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'" : "frame-ancestors 'self'"; h["Content-Disposition"] = `${opts.dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(path.basename(f))}`; }
     if (inlineName) h["Content-Disposition"] = `inline; filename*=UTF-8''${encodeURIComponent(inlineName)}`;
     res.writeHead(200, h); fs.createReadStream(f).pipe(res);
   });
@@ -152,13 +160,13 @@ function walk(dir, base, out, depth) {
   for (const e of list) {
     if (e.name.startsWith(".") || e.name === "node_modules") continue;
     const full = path.join(dir, e.name), rel = path.relative(base, full).split(path.sep).join("/");
-    if (full === DATA_DIR || full.startsWith(DATA_DIR + path.sep)) continue;
+    if (!MIRROR && (full === DATA_DIR || full.startsWith(DATA_DIR + path.sep))) continue;
     if (e.isDirectory()) walk(full, base, out, depth + 1);
     else if (e.isFile()) { const st = fs.statSync(full); out.push({ path: rel, size: st.size, mtime: st.mtime.toISOString() }); }
   }
 }
 const ipOf = req => (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
-const PUBLIC = new Set(["/connexion", "/installation", "/connexion.js", "/app.css", "/assets/logo-hep.svg", "/api/connexion", "/api/installation", "/api/etat-installation", "/favicon.ico", "/robots.txt"]);
+const PUBLIC = new Set(["/api/sync/manifeste", "/api/sync/fichier", "/api/sync/fin", "/connexion", "/installation", "/connexion.js", "/app.css", "/assets/logo-hep.svg", "/api/connexion", "/api/installation", "/api/etat-installation", "/favicon.ico", "/robots.txt"]);
 
 /* ================================================================ routes */
 http.createServer(async (req, res) => {
@@ -190,12 +198,14 @@ http.createServer(async (req, res) => {
       usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login); return send(req, res, 200, { ok: true });
     }
     if (p === "/api/deconnexion" && req.method === "POST") { const t = cookies(req).hepvd_s; if (t) { delete SESS[t]; saveSess(); } res.setHeader("Set-Cookie", "hepvd_s=; Path=/; Max-Age=0"); return send(req, res, 200, { ok: true }); }
+    /* ---------- synchronisation du dossier projet (jeton, sans session) */
+    if (p.startsWith("/api/sync/")) return SYNC.api(req, res, p, u, { send, body, ip });
     /* ---------- contrôle d'accès */
     const me = currentUser(req);
     if (!me && !PUBLIC.has(p)) { if (p.startsWith("/api/")) return send(req, res, 401, { error: "non connecté", redirect: "connexion" }); res.writeHead(302, { Location: "/connexion" }); return res.end(); }
     const canEdit = me && me.role !== "lecteur", isAdmin = me && me.role === "admin";
     /* ---------- API */
-    if (p === "/api/whoami") return send(req, res, 200, { user: me, auth: !OPEN, docsBase: PROJECT_ROOT ? "projet/" : null, storage: store.kind });
+    if (p === "/api/whoami") return send(req, res, 200, { user: me, auth: !OPEN, docsBase: PROJECT_ROOT ? "projet/" : null, miroir: MIRROR, storage: store.kind });
     if (p === "/api/data" && req.method === "GET") { const s = store.get(); if (!s) return send(req, res, 404, { error: "vide" }); return send(req, res, 200, `{"rev":${s.rev},"data":${s.data}}`); }
     if (p === "/api/data" && req.method === "PUT") {
       if (!canEdit) return send(req, res, 403, { error: "Accès en lecture seule" });
@@ -229,6 +239,10 @@ http.createServer(async (req, res) => {
       if (!isAdmin) return send(req, res, 403, { error: "Réservé aux administrateurs" });
       return NOTIF.api(req, res, p, { send, jbody, me });
     }
+    if (p === "/api/admin/sync" || p.startsWith("/api/admin/sync/")) {
+      if (!isAdmin) return send(req, res, 403, { error: "Réservé aux administrateurs" });
+      return SYNC.admin(req, res, p, { send, jbody, me });
+    }
     if (p === "/api/utilisateurs" || p.startsWith("/api/utilisateurs/")) {
       if (!isAdmin || OPEN) return send(req, res, 403, { error: "Réservé aux administrateurs" });
       const login = p.split("/")[3];
@@ -258,13 +272,13 @@ http.createServer(async (req, res) => {
     }
     if (p.startsWith("/api/")) return send(req, res, 404, {});
     /* ---------- fichiers */
-    if (p.startsWith("/projet/")) { if (!PROJECT_ROOT) return send(req, res, 404, "Dossier projet non configuré", "text/plain; charset=utf-8"); const f = inside(PROJECT_ROOT, p.slice(8)); if (!f || f.startsWith(DATA_DIR)) return send(req, res, 403, "Interdit", "text/plain"); return serveFile(req, res, f); }
+    if (p.startsWith("/projet/")) { if (!PROJECT_ROOT) return send(req, res, 404, "Dossier projet non configuré", "text/plain; charset=utf-8"); const f = inside(PROJECT_ROOT, p.slice(8)); if (!f || (!MIRROR && f.startsWith(DATA_DIR))) return send(req, res, 403, "Interdit", "text/plain"); return serveFile(req, res, f, null, { projet: true, dl: u.searchParams.get("dl") === "1" }); }
     const f = inside(APP, p === "/" ? "index.html" : p.slice(1));
     const rel = f ? path.relative(APP, f).split(path.sep).join("/") : "";
-    if (!f || f.startsWith(DATA_DIR + path.sep) && !/^data\/projet-data\.js$/.test(rel) || /^(data\/(?!projet-data\.js)|\.git|node_modules|serveur\/)|(^|\/)\.|\.(sqlite|ndjson|command)$|^server\.js$|^package(-lock)?\.json$/.test(rel)) return send(req, res, 403, "Interdit", "text/plain; charset=utf-8");
+    if (!f || f.startsWith(DATA_DIR + path.sep) && !/^data\/projet-data\.js$/.test(rel) || /^(data\/(?!projet-data\.js)|\.git|node_modules|serveur\/|outils\/)|(^|\/)\.|\.(sqlite|ndjson|command)$|^server\.js$|^package(-lock)?\.json$/.test(rel)) return send(req, res, 403, "Interdit", "text/plain; charset=utf-8");
     return serveFile(req, res, f);
   } catch (e) { console.error(e); send(req, res, 500, { error: "Erreur serveur" }); }
 }).listen(PORT, HOST, () => {
-  console.log(`Plateforme HEPVD v0.4.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? " · dossier projet : " + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
+  console.log(`Plateforme HEPVD v0.5.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? (MIRROR ? " · miroir du dossier projet : " : " · dossier projet : ") + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
   if (SETUP_CODE) console.log(`\n=== PREMIÈRE INSTALLATION ===\nOuvrez le site et saisissez le code d'installation${ARGS["code-installation"] || process.env.SETUP_CODE ? " indiqué dans la commande d'exécution" : " : " + SETUP_CODE + " (aussi dans " + CODE_F + ")"}\n`);
 });

@@ -103,6 +103,27 @@ Fichiers créés dans le dossier de données (hors dépôt, droits 600) : `notif
 Option plus sûre : définir la variable d'environnement `SMTP_PASSWORD` dans le Manager (le mot de passe n'est alors jamais écrit sur disque).
 L'application doit rester démarrée en permanence pour que les envois planifiés partent (planificateur interne, vérification chaque minute, fuseau Europe/Zurich).
 
+## Dossier projet en ligne (v0.5)
+
+La vue **Documents → Dossier projet** permet de parcourir le dossier `HEPVD_Refonte-Web` et d'ouvrir les fichiers en ligne (lecture seule) : Markdown, PDF, Word (.docx), Excel (.xlsx), CSV, images, vidéos, textes. PowerPoint et Figma : téléchargement uniquement. Les liens « chemin » des fiches *Documents* ouvrent directement le fichier.
+
+Le serveur n'a pas accès au Mac : il tient un **miroir** du dossier projet dans `hepvd-donnees/projet/`, alimenté par le script de synchronisation. Tout le dossier est envoyé **sauf** `00_PILOTAGE/Tableau-de-bord/` (le code), les fichiers cachés et les fichiers temporaires Office (`~$…`).
+
+**Important : la commande d'exécution Infomaniak ne doit pas contenir `--projet`** (sinon le miroir est désactivé). Le dossier `hepvd-donnees/projet/` est créé automatiquement.
+
+Mise en service :
+1. *Console d'administration → Synchronisation* : **Créer un jeton** (nom : « Mac U-Com »). Copier le jeton : il n'est affiché qu'une seule fois.
+2. Sur le Mac, double-cliquer `00_PILOTAGE/Tableau-de-bord/Synchroniser-le-projet.command`. Au premier lancement, coller l'adresse de la plateforme (`https://projectmanagement.stratospherik.ch`) puis le jeton. Ils sont enregistrés dans `~/.hepvd-synchronisation.json` (lisible par vous seul).
+3. Relancer le même fichier après chaque série de modifications : seuls les fichiers nouveaux ou modifiés sont envoyés.
+
+Options (Terminal, depuis `Tableau-de-bord`) :
+- `node outils/synchroniser.js --simulation` : affiche ce qui serait envoyé ou retiré, sans rien faire.
+- `node outils/synchroniser.js --sans-suppression` : n'envoie que les ajouts et modifications.
+- `node outils/synchroniser.js --planifier=18:30` : synchronisation automatique chaque jour à 18 h 30 (Mac allumé) ; journal dans `~/Library/Logs/hepvd-synchronisation.log`. `--deplanifier` pour l'arrêter.
+- `node outils/synchroniser.js --configurer` : changer d'adresse ou de jeton.
+
+Sécurité : jetons stockés hachés, révocables dans la console ; un fichier supprimé sur le Mac n'est jamais détruit sur le serveur mais déplacé dans `hepvd-donnees/projet-corbeille/<date>/` ; journal des synchronisations dans la console. Les fichiers ne sont visibles que par les comptes connectés.
+
 ## Sauvegardes
 
 - Sauvegardes automatiques de l'hébergement Infomaniak.

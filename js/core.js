@@ -115,7 +115,7 @@ const roleOpts = () => S.roles.map(r => [r.code, `${r.code} — ${r.nom}${r.pers
 const phaseOpts = () => S.phases.map(p => [p.id, `${p.id} — ${p.nom}`]);
 const task = id => S.taches.find(t => t.id === id);
 const docsOfTask = id => S.documents.filter(d => d.taches.includes(id));
-const docUrl = d => { const v = d.versions && d.versions.length ? d.versions[d.versions.length - 1] : null; if (v && v.fichierId && SERVER) return api("files/" + v.fichierId); return d.chemin && CFG.docsBase ? CFG.docsBase + d.chemin.split("/").map(encodeURIComponent).join("/") : null; };
+const docUrl = d => { const v = d.versions && d.versions.length ? d.versions[d.versions.length - 1] : null; if (v && v.fichierId && SERVER) return api("files/" + v.fichierId); if (!d.chemin || !CFG.docsBase) return null; return SERVER ? "#fichier/" + d.chemin.split("/").map(encodeURIComponent).join("/") : CFG.docsBase + d.chemin.split("/").map(encodeURIComponent).join("/"); };
 const phaseChip = id => { const p = phase(id); return `<span class="chip" title="${esc(p.nom)}"><span class="dot" style="background:${p.couleur}"></span>${esc(id || "—")}</span>`; };
 const link = (hash, txt, cls) => `<a href="#${hash}" class="${cls || ""}">${txt}</a>`;
 const taskChip = id => { const t = task(id); return t ? `<a class="chip" href="#" data-task="${t.id}" title="${esc(t.nom)}">${t.id}</a>` : ""; };
