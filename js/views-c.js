@@ -158,9 +158,9 @@ function copyText(txt, name) {
 function vBudget() {
   const Y = budgetYears(); if (!budgetYear || !Y.includes(budgetYear)) budgetYear = Y.includes(+S.meta.budgetAnnee) ? +S.meta.budgetAnnee : (Y[0] || new Date().getFullYear());
   const B = budgetCalc(budgetYear), d = budgetDecision(), ro = READONLY();
-  const wrap = el(`<p class="muted intro">Budget d'achats du projet, par année et par scénario (Recommandé / Allégé / Minimal), avec la justification de chaque ligne. Le temps de travail interne n'y est pas imputé (Q-001). Réserve pour imprévus de ${Math.round(B.r * 100)} % calculée automatiquement. Source détaillée : <code>01_CADRAGE/03_Livrables/P0_Budget-2027_v0.1.xlsx</code>.</p>
+  const wrap = el(`<p class="muted intro">Budget d'achats du projet, par année et par scénario (${esc(scenarios().join(" / "))}), avec la justification de chaque ligne. Le temps de travail interne n'y est pas imputé (Q-001). Réserve pour imprévus de ${Math.round(B.r * 100)} % calculée automatiquement. Document de référence : ${esc(S.meta.budgetDoc || "voir Documents")}.</p>
     <div class="bar no-print"><label for="by" style="margin:0">Année</label><select id="by">${Y.map(y => `<option ${y === budgetYear ? "selected" : ""}>${y}</option>`).join("")}</select>
-      <label for="bsc" style="margin:0 0 0 12px">Scénario retenu</label><select id="bsc" ${ro ? "disabled" : ""}><option value="">À arbitrer${d ? " (" + esc(d.id) + ")" : ""}</option>${SCENARIOS.map(s => `<option ${S.meta.budgetScenario === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+      <label for="bsc" style="margin:0 0 0 12px">Scénario retenu</label><select id="bsc" ${ro ? "disabled" : ""}><option value="">À arbitrer${d ? " (" + esc(d.id) + ")" : ""}</option>${scenarios().map(s => `<option ${S.meta.budgetScenario === s ? "selected" : ""}>${s}</option>`).join("")}</select>
       <span class="grow"></span><button class="btn sec sm" id="bcopy">Copier la synthèse</button><button class="btn sec sm" id="bcopyd">Copier synthèse + détail</button><button class="btn sec sm" id="bnote">Exporter la note (.md)</button><button class="btn sec sm" id="bprint">Imprimer / PDF</button></div>
     <div class="bento" style="margin-bottom:var(--gap)">
       <div class="card dark c3 kpi"><div class="v">${chf(B.total)}</div><div class="l">CHF ${B.annee} · scénario ${esc(B.ref)}${S.meta.budgetScenario ? "" : " (référence)"}</div></div>
@@ -170,7 +170,7 @@ function vBudget() {
       <div class="card c7 md"><div id="bsyn"></div></div><div class="card c5 md"><div id="bplu"></div></div></div>`);
   $("#bsyn", wrap).innerHTML = mdToHtml(budgetMd(budgetYear));
   $("#bplu", wrap).innerHTML = mdToHtml(budgetPluriMd() || "### Vision pluriannuelle\n\nUne seule année saisie.");
-  wrap.appendChild(genericTable("budget", { stateKey: "budget-" + budgetYear, filter: b => +b.annee === +budgetYear, preset: { annee: budgetYear, statut: "Proposé", scenarios: "Recommandé, Allégé, Minimal" },
+  wrap.appendChild(genericTable("budget", { stateKey: "budget-" + budgetYear, filter: b => +b.annee === +budgetYear, preset: { annee: budgetYear, statut: "Proposé", scenarios: scenarios().join(", ") },
     extraCol: { l: "Engagé / prévu", f: b => b.prevu ? `<div class="prog" style="width:90px"><i style="width:${Math.min(100, Math.round(b.engage / b.prevu * 100))}%"></i></div>` : "—" } }));
   $("#by", wrap).onchange = e => { budgetYear = +e.target.value; render(); };
   $("#bsc", wrap).onchange = e => { const v = e.target.value, old = S.meta.budgetScenario || "à arbitrer"; S.meta.budgetScenario = v; save({ type: "Budget", id: d ? d.id : "", resume: "Scénario budgétaire retenu", action: `Scénario : « ${old} » → « ${v || "à arbitrer"} »` }); render(); };

@@ -129,16 +129,16 @@ function refLink(ref) {
 /* ---------- Budget : scénarios, années, extraits pour les rapports */
 const inScen = (b, s) => String(b.scenarios || "").split(/,\s*/).includes(s);
 const budgetYears = () => [...new Set(S.budget.map(b => +b.annee).filter(Boolean))].sort();
-const refScenario = () => S.meta.budgetScenario || "Recommandé";
+const refScenario = () => S.meta.budgetScenario || scenarios()[0];
 function budgetCalc(annee) {
   const L = S.budget.filter(b => +b.annee === +annee && b.statut !== "Abandonné"), r = Number(S.meta.budgetReserve) || 0;
   const catOf = b => BUDGET_CATS.includes(b.categorie) ? b.categorie : "Autre";
   const cats = BUDGET_CATS.filter(c => L.some(b => catOf(b) === c));
-  const scens = SCENARIOS.filter(s => L.some(b => inScen(b, s)));
+  const scens = scenarios().filter(s => L.some(b => inScen(b, s)));
   const sc = {};
-  SCENARIOS.forEach(s => { const by = {}; cats.forEach(c => by[c] = L.filter(b => inScen(b, s) && catOf(b) === c).reduce((t, b) => t + (+b.prevu || 0), 0)); const sub = Object.values(by).reduce((a, v) => a + v, 0); sc[s] = { by, sub, res: sub * r, tot: sub * (1 + r) }; });
+  scenarios().forEach(s => { const by = {}; cats.forEach(c => by[c] = L.filter(b => inScen(b, s) && catOf(b) === c).reduce((t, b) => t + (+b.prevu || 0), 0)); const sub = Object.values(by).reduce((a, v) => a + v, 0); sc[s] = { by, sub, res: sub * r, tot: sub * (1 + r) }; });
   const sum = k => L.reduce((t, b) => t + (+b[k] || 0), 0);
-  const ref = scens.includes(refScenario()) ? refScenario() : (scens[0] || "Recommandé");
+  const ref = scens.includes(refScenario()) ? refScenario() : (scens[0] || scenarios()[0]);
   return { annee: +annee, L, cats, scens, sc, r, ref, total: sc[ref].tot, eng: sum("engage"), con: sum("consomme"), env: +annee === +S.meta.budgetAnnee ? (+S.meta.budget || 0) : 0 };
 }
 const chf2 = n => (Number(n) || 0).toLocaleString("fr-CH", { maximumFractionDigits: 2 });
@@ -158,7 +158,7 @@ function budgetMd(annee, opts) {
   md += `\nEngagé : CHF ${chf(B.eng)} · consommé : CHF ${chf(B.con)} (${B.total ? Math.round(B.eng / B.total * 100) : 0} % du scénario ${B.ref} engagé)\n`;
   if (opts.detail) {
     md += `\n### Détail ligne par ligne ${annee}\n\n| ID | Poste | Quantité | Prix unitaire | Montant | Scénarios | Statut | Justification |\n|---|---|---|---|---|---|---|---|\n`;
-    md += B.L.map(b => `| ${b.id} | ${mdCell(b.poste)} | ${b.quantite != null && b.quantite !== "" ? chf2(b.quantite) : ""} ${mdCell(b.unite)} | ${b.pu ? chf2(b.pu) : ""} | ${chf(b.prevu)} | ${String(b.scenarios || "").split(/,\s*/).map(s => SC_ABR[s] || s).join(" ")} | ${mdCell(b.statut)} | ${mdCell(b.justification)}${b.source ? ` (source : ${mdCell(b.source)})` : ""} |`).join("\n") + "\n\nR = Recommandé, A = Allégé, M = Minimal.\n";
+    md += B.L.map(b => `| ${b.id} | ${mdCell(b.poste)} | ${b.quantite != null && b.quantite !== "" ? chf2(b.quantite) : ""} ${mdCell(b.unite)} | ${b.pu ? chf2(b.pu) : ""} | ${chf(b.prevu)} | ${String(b.scenarios || "").split(/,\s*/).map(s => SC_ABR[s] || s.charAt(0)).join(" ")} | ${mdCell(b.statut)} | ${mdCell(b.justification)}${b.source ? ` (source : ${mdCell(b.source)})` : ""} |`).join("\n") + "\n\nR = Recommandé, A = Allégé, M = Minimal.\n";
   }
   return md;
 }

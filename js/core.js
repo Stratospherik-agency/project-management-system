@@ -42,7 +42,7 @@ function normalize(d) {
   d.ui = Object.assign({ collapsed: {}, zoom: "mois", ganttPhase: "", showDeps: true, showBaseline: true, baseline: "" }, d.ui || {});
   d.documents.forEach(x => { if (!Array.isArray(x.taches)) x.taches = String(x.taches || "").split(/[,; ]+/).filter(Boolean); if (!Array.isArray(x.versions)) x.versions = []; });
   d.risques.forEach(x => { if (!Array.isArray(x.revues)) x.revues = []; });
-  d.budget.forEach(x => { if (!x.annee) x.annee = 2027; if (!x.scenarios) x.scenarios = "Recommandé, Allégé, Minimal"; });
+  d.budget.forEach(x => { if (!x.annee) x.annee = 2027; if (!x.scenarios) x.scenarios = ((d.meta && Array.isArray(d.meta.scenarios) && d.meta.scenarios.length) ? d.meta.scenarios : SCEN_DEFAUT).join(", "); });
   if (d.meta.budgetReserve == null) d.meta.budgetReserve = 0.1;
   if (!d.meta.budgetAnnee) d.meta.budgetAnnee = 2027;
   if (d.meta.budgetScenario == null) d.meta.budgetScenario = "";
@@ -143,8 +143,10 @@ document.addEventListener("click", e => {
 
 /* ===================================================== schémas */
 const BUDGET_CATS = ["Licences et outils", "Recherche utilisateurs", "Imagerie", "Accessibilité", "Consultant UX/UI externe", "Formation", "Autre"];
-const SCENARIOS = ["Recommandé", "Allégé", "Minimal"];
-const BUDGET_SCEN_OPTS = ["Recommandé, Allégé, Minimal", "Recommandé, Allégé", "Recommandé"];
+const SCEN_DEFAUT = ["Recommandé", "Allégé", "Minimal"];
+/* scénarios budgétaires configurables (S.meta.scenarios), dans l'ordre d'affichage ; le premier sert de référence */
+function scenarios() { const m = typeof S !== "undefined" && S && S.meta && Array.isArray(S.meta.scenarios) && S.meta.scenarios.length ? S.meta.scenarios : SCEN_DEFAUT; return m; }
+function budgetScenOpts() { const s = scenarios(), out = []; for (let m = (1 << s.length) - 1; m > 0; m--) out.push(s.filter((_, i) => m & (1 << (s.length - 1 - i))).join(", ")); return out; }
 const BUDGET_STATUTS = ["Estimé", "Proposé", "Demandé", "Accordé", "Engagé", "Consommé", "Abandonné"];
 const F = (k, l, type, o) => Object.assign({ k, l, type: type || "text" }, o || {});
 const SCHEMAS = {
@@ -194,7 +196,7 @@ const SCHEMAS = {
     F("poste", "Poste", "text", { col: true, req: true, full: true }), F("phases", "Phases", "text", { col: true }), F("periode", "Période de dépense", "text"),
     F("quantite", "Quantité", "number"), F("unite", "Unité", "text"), F("pu", "Prix unitaire (CHF)", "number"),
     F("prevu", "Montant prévu (CHF)", "number", { col: true }),
-    F("scenarios", "Scénarios", "select", { col: true, opts: () => BUDGET_SCEN_OPTS }),
+    F("scenarios", "Scénarios", "select", { col: true, opts: () => budgetScenOpts() }),
     F("statut", "Statut", "select", { col: true, opts: () => BUDGET_STATUTS }),
     F("justification", "Justification", "textarea", { full: true }), F("source", "Source / hypothèse", "text", { full: true }),
     F("engage", "Engagé (CHF)", "number", { col: true }), F("consomme", "Consommé (CHF)", "number", { col: true })] },
