@@ -31,6 +31,7 @@ const sev = s => s >= 15 ? 4 : s >= 10 ? 3 : s >= 5 ? 2 : 1;
 const SEVL = ["", "Faible", "Modéré", "Élevé", "Critique"];
 const sevTag = s => `<span class="tag sev-${sev(s)}">${s} · ${SEVL[sev(s)]}</span>`;
 
+const ABS_GROUPES = ["Co-chefs", "Copil", "Équipe projet", "Externe"];
 /* ===================================================== état & persistance */
 let S = null, SERVER = false, serverRev = 0, saveTimer = null, pendingJournal = [], USER = "", AUTH = false, ROLE = "admin", STORAGE = "";
 const SEED = window.PROJECT_DATA ? clone(window.PROJECT_DATA) : null;
@@ -181,7 +182,7 @@ const SCHEMAS = {
     F("demandeur", "Demandeur", "text", { col: true }), F("impact", "Impacts (périmètre, délai, budget)", "textarea", { full: true, col: true }),
     F("statut", "Statut", "select", { opts: () => ["Soumise", "En analyse", "Acceptée", "Refusée"], col: true }), F("decision", "Décision liée (D-…)", "text")] },
   absences: { titre: "Absence", prefix: "ABS-", pad: 3, fields: [
-    F("id", "ID", "ro", { col: true }), F("personne", "Personne", "text", { col: true, req: true }), F("roles", "Rôles concernés (codes, séparés par des virgules)", "text", { col: true }),
+    F("id", "ID", "ro", { col: true }), F("personne", "Personne", "text", { col: true, req: true }), F("groupe", "Groupe", "select", { opts: () => ABS_GROUPES, col: true }), F("roles", "Rôles concernés (codes, séparés par des virgules)", "text", { col: true }),
     F("debut", "Premier jour d'absence", "date", { col: true, req: true }), F("fin", "Dernier jour d'absence", "date", { col: true, req: true }),
     F("statut", "Statut", "select", { opts: () => ["Confirmée", "À préciser", "Option"], col: true }), F("notes", "Notes", "textarea", { full: true, col: true })] },
   parties: { titre: "Partie prenante", prefix: "PP-", pad: 2, fields: [

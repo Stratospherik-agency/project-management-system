@@ -162,22 +162,39 @@ function linkDocToTask(tid) {
 }
 
 /* ---------- Absences */
-const ABS_COLORS = ["#8a5a00", "#6a3d9a", "#00695c", "#ad1457"];
+const ABS_COLORS = ["#8a5a00", "#6a3d9a", "#00695c", "#ad1457", "#3949ab", "#5d4037", "#2e7d32", "#c62828"];
+let absGroupe = "";
+const absGrp = a => a.groupe || "Équipe projet";
 function absencesSorted() { return S.absences.filter(a => a.personne && a.debut && a.fin).slice().sort((a, b) => pd(a.debut) - pd(b.debut)); }
+/* Regroupe les absences par groupe ; les absences qui se chevauchent passent sur une sous-ligne. */
+function absLanes(list) {
+  const out = [];
+  [...ABS_GROUPES, ...new Set(list.map(absGrp).filter(g => !ABS_GROUPES.includes(g)))].forEach(g => {
+    const lanes = [];
+    list.filter(a => absGrp(a) === g).forEach(a => { let l = lanes.find(x => x.at(-1).fin < a.debut); if (!l) { l = []; lanes.push(l); } l.push(a); });
+    lanes.forEach((items, i) => out.push({ k: "abs", g, items, n: i }));
+  });
+  return out;
+}
 function absColor(n, people) { return ABS_COLORS[Math.max(0, people.indexOf(n)) % ABS_COLORS.length]; }
 function absImpacts(a) {
   const roles = String(a.roles || "").split(/[,; ]+/).filter(Boolean), overlap = (d, f) => d <= a.fin && f >= a.debut;
+  const copil = absGrp(a) === "Copil" || roles.includes("COP");
+  const jalons = S.jalons.filter(j => j.date && overlap(j.date, j.date));
   return {
-    jalons: S.jalons.filter(j => j.date && overlap(j.date, j.date)),
+    jalons,
     taches: S.taches.filter(t => !isDone(t) && roles.includes(t.responsable) && overlap(t.debut, t.fin)),
+    alerteCopil: copil ? [...jalons.filter(j => j.type === "Gate").map(j => `${j.id} ${fds(j.date)}`), ...S.taches.filter(t => !isDone(t) && /copil/i.test(t.nom) && overlap(t.debut, t.fin)).map(t => `${t.id} ${t.nom}`)] : [],
   };
 }
 function vAbsences() {
-  const wrap = el(`<p class="muted intro">Absences connues qui contraignent le planning. Elles apparaissent dans le Gantt ; les dates sont incluses. Les impacts listent les jalons de la période et les tâches des rôles concernés.</p>`);
-  wrap.appendChild(genericTable("absences"));
-  const list = absencesSorted();
+  const wrap = el(`<p class="muted intro">Absences des personnes dont la présence compte pour le projet. Indiquer uniquement les dates, jamais le motif. Dates incluses. Ces absences apparaissent dans le Gantt.</p><div class="bar"><select id="absg" aria-label="Filtrer par groupe"><option value="">Tous les groupes</option>${ABS_GROUPES.map(g => `<option ${absGroupe === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></div>`);
+  $("#absg", wrap).onchange = e => { absGroupe = e.target.value; render(); };
+  const match = a => !absGroupe || absGrp(a) === absGroupe;
+  wrap.appendChild(genericTable("absences", { filter: match, preset: { groupe: absGroupe || "Équipe projet" } }));
+  const list = absencesSorted().filter(match);
   if (list.length) {
-    const c = el(`<div class="card" style="margin-top:var(--gap)"><h2>Impacts sur le planning</h2>${list.map(a => { const im = absImpacts(a), n = im.jalons.length + im.taches.length; return `<div class="li"><span class="d">${esc(a.id)}</span><div><strong>${esc(a.personne)}</strong> · ${fd(a.debut)} → ${fd(a.fin)} · ${esc(a.statut || "")}<br>${n ? [...im.jalons.map(j => `<strong>${esc(j.id)}</strong> ${fds(j.date)}`), ...im.taches.map(t => `${esc(t.id)} ${esc(t.nom)}`)].join(" · ") : "Aucun jalon ni tâche concernée."}</div></div>`; }).join("")}</div>`);
+    const c = el(`<div class="card" style="margin-top:var(--gap)"><h2>Impacts sur le planning</h2>${list.map(a => { const im = absImpacts(a), n = im.jalons.length + im.taches.length; return `<div class="li"><span class="d">${esc(a.id)}</span><div><strong>${esc(a.personne)}</strong> · ${esc(absGrp(a))} · ${fd(a.debut)} → ${fd(a.fin)} · ${esc(a.statut || "")}${im.alerteCopil.length ? `<br><strong style="color:#b3261e">⚠ Copil ou gate concerné : ${im.alerteCopil.map(esc).join(" · ")}</strong>` : ""}<br>${n ? [...im.jalons.map(j => `<strong>${esc(j.id)}</strong> ${fds(j.date)}`), ...im.taches.map(t => `${esc(t.id)} ${esc(t.nom)}`)].join(" · ") : "Aucun jalon ni tâche concernée."}</div></div>`; }).join("")}</div>`);
     wrap.appendChild(c);
   }
   return wrap;
@@ -193,7 +210,7 @@ function vGantt() {
   const start = mondayOf(Math.min(...allDates)) - 7 * DAY, end = Math.max(...allDates, ...Object.values(F).map(f => f.ff)) + 21 * DAY;
   const W = Math.round((end - start) / DAY * px), RH = 30, HH = 48, X = t => Math.round((t - start) / DAY * px);
   const abs = absencesSorted(), people = [...new Set(abs.map(a => a.personne))];
-  const rows = ui.showAbsences ? people.map(n => ({ k: "abs", n, c: absColor(n, people) })) : [];
+  const rows = ui.showAbsences ? absLanes(abs) : [];
   phs.forEach(p => { rows.push({ k: "ph", p }); if (!ui.collapsed[p.id]) { S.taches.filter(t => t.phase === p.id).sort((a, b) => pd(a.debut) - pd(b.debut)).forEach(t => rows.push({ k: "t", t, p })); S.jalons.filter(j => j.phase === p.id).forEach(j => rows.push({ k: "m", j, p })); } });
   const H = HH + rows.length * RH;
   let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Diagramme de Gantt" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif" font-size="11"><rect x="0" y="0" width="${W}" height="${HH}" fill="#f6fafd"/>`;
@@ -214,7 +231,7 @@ function vGantt() {
   rows.forEach((r, i) => {
     const y = HH + i * RH;
     if (r.k === "ph") svg += `<rect x="0" y="${y}" width="${W}" height="${RH}" fill="#f6fafd"/>`;
-    if (r.k === "abs") { abs.filter(a => a.personne === r.n).forEach(a => { const ax = X(pd(a.debut)), aw = Math.max(4, X(pd(a.fin) + DAY) - ax), opt = a.statut === "Option", lab = fds(a.debut) + " → " + fds(a.fin); svg += `<g class="g-abs" data-id="${esc(a.id)}" style="cursor:pointer"><title>${esc(a.personne + " · " + fd(a.debut) + " → " + fd(a.fin) + " · " + (a.statut || "") + (a.notes ? " · " + a.notes : ""))}</title><rect x="${ax}" y="${y + 6}" width="${aw}" height="${RH - 14}" rx="4" fill="${opt ? "none" : r.c}" fill-opacity=".8" stroke="${r.c}" ${opt || a.statut === "À préciser" ? 'stroke-dasharray="4 3" stroke-width="1.5"' : ""}/>${aw > 96 ? `<text x="${ax + 6}" y="${y + 19}" fill="${opt ? r.c : "#fff"}" font-size="10">${esc(lab)}</text>` : ""}</g>`; }); }
+    if (r.k === "abs") { r.items.forEach(a => { const ax = X(pd(a.debut)), aw = Math.max(4, X(pd(a.fin) + DAY) - ax), opt = a.statut === "Option", col = absColor(a.personne, people), nomC = a.personne.split(" ").pop(), lab = aw > 170 ? nomC + " · " + fds(a.debut) + " → " + fds(a.fin) : aw > 60 ? nomC : ""; svg += `<g class="g-abs" data-id="${esc(a.id)}" style="cursor:pointer"><title>${esc(a.personne + " · " + fd(a.debut) + " → " + fd(a.fin) + " · " + (a.statut || "") + (a.notes ? " · " + a.notes : ""))}</title><rect x="${ax}" y="${y + 6}" width="${aw}" height="${RH - 14}" rx="4" fill="${opt ? "none" : col}" fill-opacity=".8" stroke="${col}" ${opt || a.statut === "À préciser" ? 'stroke-dasharray="4 3" stroke-width="1.5"' : ""}/>${lab ? `<text x="${ax + 6}" y="${y + 19}" fill="${opt ? col : "#fff"}" font-size="10">${esc(lab)}</text>` : ""}</g>`; }); }
     svg += `<line x1="0" y1="${y + RH}" x2="${W}" y2="${y + RH}" stroke="#eef3f7"/>`;
     if (r.k === "ph") { const a = X(pd(r.p.debut)), b = X(pd(r.p.fin) + DAY), pr = phaseProgress(r.p.id); svg += `<rect x="${a}" y="${y + 10}" width="${b - a}" height="10" rx="5" fill="${r.p.couleur}" opacity=".35"/><rect x="${a}" y="${y + 10}" width="${(b - a) * pr / 100}" height="10" rx="5" fill="${r.p.couleur}"/><text x="${b + 6}" y="${y + 19}" fill="#0b1f2a" font-weight="bold">${r.p.id} · ${pr} %</text>`; }
     else if (r.k === "t") {
@@ -242,10 +259,10 @@ function vGantt() {
     <label class="chk"><input type="checkbox" data-o="showForecast" ${ui.showForecast ? "checked" : ""}> Prévision</label>
     <label class="chk"><input type="checkbox" data-o="showCrit" ${ui.showCrit ? "checked" : ""}> Chemin critique</label>
     <span class="grow"></span><button class="btn sec sm" id="gexp">Déplier</button><button class="btn sec sm" id="gcol">Replier</button><button class="btn sec sm" id="gtoday">Aujourd'hui</button><button class="btn sm" id="gadd">+ Tâche</button></div>
-    <div class="gantt"><div class="g-left"><div class="g-h">Phase / étape</div>${rows.map(r => r.k === "abs" ? `<div class="g-row abs" role="link" tabindex="0"><span class="dot" style="background:${r.c}"></span><span class="lbl">Absences — ${esc(r.n)}</span></div>` : r.k === "ph" ? `<div class="g-row ph" data-ph="${r.p.id}" role="button" tabindex="0" aria-expanded="${!ui.collapsed[r.p.id]}"><span aria-hidden="true">${ui.collapsed[r.p.id] ? "▸" : "▾"}</span><span class="dot" style="background:${r.p.couleur}"></span><span class="lbl">${r.p.id} — ${esc(r.p.nom)}</span></div>`
+    <div class="gantt"><div class="g-left"><div class="g-h">Phase / étape</div>${rows.map(r => r.k === "abs" ? `<div class="g-row abs" role="link" tabindex="0"><span class="lbl">${r.n ? "" : "Absences — " + esc(r.g)}</span></div>` : r.k === "ph" ? `<div class="g-row ph" data-ph="${r.p.id}" role="button" tabindex="0" aria-expanded="${!ui.collapsed[r.p.id]}"><span aria-hidden="true">${ui.collapsed[r.p.id] ? "▸" : "▾"}</span><span class="dot" style="background:${r.p.couleur}"></span><span class="lbl">${r.p.id} — ${esc(r.p.nom)}</span></div>`
       : r.k === "t" ? `<div class="g-row task" data-id="${r.t.id}" role="button" tabindex="0" title="${esc(r.t.nom)}"><span class="lbl">${isLate(r.t) ? "⚠ " : ""}${esc(r.t.nom)}</span></div>` : `<div class="g-row ms">◆ <span class="lbl">${esc(r.j.id)} — ${esc(r.j.nom)}</span></div>`).join("")}</div>
     <div class="g-right" id="gr">${svg}</div></div>
-    <div class="g-legend"><span>Glisser une barre pour la déplacer · tirer son bord droit pour la fin · cliquer pour modifier</span><span><i class="lg" style="background:#6b8291;height:4px"></i>baseline</span><span><i class="lg" style="border:1px dashed #b3261e"></i>prévision en retard</span><span><i class="lg" style="border:2px solid #00354c"></i>critique (marge ≤ 5 j)</span>${people.length && ui.showAbsences ? `<span><i class="lg" style="background:${absColor(people[0], people)}"></i>absence (pointillés : à préciser ou option)</span>` : ""}<span style="color:#b3261e">┃ aujourd'hui · ⇢ dépendance non respectée</span></div>`;
+    <div class="g-legend"><span>Glisser une barre pour la déplacer · tirer son bord droit pour la fin · cliquer pour modifier</span><span><i class="lg" style="background:#6b8291;height:4px"></i>baseline</span><span><i class="lg" style="border:1px dashed #b3261e"></i>prévision en retard</span><span><i class="lg" style="border:2px solid #00354c"></i>critique (marge ≤ 5 j)</span>${people.length && ui.showAbsences ? `<span>Absences (pointillés : à préciser ou option) :</span>${people.map(n => `<span><i class="lg" style="background:${absColor(n, people)}"></i>${esc(n)}</span>`).join("")}` : ""}<span style="color:#b3261e">┃ aujourd'hui · ⇢ dépendance non respectée</span></div>`;
   $$(".seg button", wrap).forEach(b => b.onclick = () => { ui.zoom = b.dataset.z; save(); render(); scrollToday(); });
   $("#gph", wrap).onchange = e => { ui.ganttPhase = e.target.value; save(); render(); };
   $$("input[data-o]", wrap).forEach(c => c.onchange = () => { ui[c.dataset.o] = c.checked; save(); const sl = $("#gr").scrollLeft; rerender(); $("#gr").scrollLeft = sl; });
