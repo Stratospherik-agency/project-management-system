@@ -25,6 +25,7 @@ const VIEWS = [
   { grp: "Organisation" },
   { id: "budget", t: "Budget", ic: "₣", f: () => vBudget() },
   { id: "raci", t: "RACI", ic: "▦", f: () => vRaci() },
+  { id: "absences", t: "Absences", ic: "☾", f: () => vAbsences() },
   { id: "parties", t: "Parties prenantes", ic: "◉", f: () => vParties() },
   { id: "roles", t: "Équipe & rôles", ic: "☺", f: () => vTable("roles", "Associez les personnes aux rôles : leurs noms apparaissent dans toute la plateforme.") },
   { id: "systemes", t: "Systèmes & API", ic: "⇄", f: () => vTable("systemes", "Inventaire des systèmes connectés. Inventaire complet prévu en P6 (étape ultérieure).") },
@@ -160,6 +161,28 @@ function linkDocToTask(tid) {
     });
 }
 
+/* ---------- Absences */
+const ABS_COLORS = ["#8a5a00", "#6a3d9a", "#00695c", "#ad1457"];
+function absencesSorted() { return S.absences.filter(a => a.personne && a.debut && a.fin).slice().sort((a, b) => pd(a.debut) - pd(b.debut)); }
+function absColor(n, people) { return ABS_COLORS[Math.max(0, people.indexOf(n)) % ABS_COLORS.length]; }
+function absImpacts(a) {
+  const roles = String(a.roles || "").split(/[,; ]+/).filter(Boolean), overlap = (d, f) => d <= a.fin && f >= a.debut;
+  return {
+    jalons: S.jalons.filter(j => j.date && overlap(j.date, j.date)),
+    taches: S.taches.filter(t => !isDone(t) && roles.includes(t.responsable) && overlap(t.debut, t.fin)),
+  };
+}
+function vAbsences() {
+  const wrap = el(`<p class="muted intro">Absences connues qui contraignent le planning. Elles apparaissent dans le Gantt ; les dates sont incluses. Les impacts listent les jalons de la période et les tâches des rôles concernés.</p>`);
+  wrap.appendChild(genericTable("absences"));
+  const list = absencesSorted();
+  if (list.length) {
+    const c = el(`<div class="card" style="margin-top:var(--gap)"><h2>Impacts sur le planning</h2>${list.map(a => { const im = absImpacts(a), n = im.jalons.length + im.taches.length; return `<div class="li"><span class="d">${esc(a.id)}</span><div><strong>${esc(a.personne)}</strong> · ${fd(a.debut)} → ${fd(a.fin)} · ${esc(a.statut || "")}<br>${n ? [...im.jalons.map(j => `<strong>${esc(j.id)}</strong> ${fds(j.date)}`), ...im.taches.map(t => `${esc(t.id)} ${esc(t.nom)}`)].join(" · ") : "Aucun jalon ni tâche concernée."}</div></div>`; }).join("")}</div>`);
+    wrap.appendChild(c);
+  }
+  return wrap;
+}
+
 /* ---------- Gantt */
 function vGantt() {
   const ui = S.ui, Z = { semaine: 16, mois: 4, trimestre: 1.4 }, px = Z[ui.zoom] || 4;
@@ -169,7 +192,8 @@ function vGantt() {
   const allDates = [S.meta.debut, S.meta.fin].concat(S.taches.flatMap(t => [t.debut, t.fin]), S.jalons.map(j => j.date)).filter(Boolean).map(pd);
   const start = mondayOf(Math.min(...allDates)) - 7 * DAY, end = Math.max(...allDates, ...Object.values(F).map(f => f.ff)) + 21 * DAY;
   const W = Math.round((end - start) / DAY * px), RH = 30, HH = 48, X = t => Math.round((t - start) / DAY * px);
-  const rows = [];
+  const abs = absencesSorted(), people = [...new Set(abs.map(a => a.personne))];
+  const rows = ui.showAbsences ? people.map(n => ({ k: "abs", n, c: absColor(n, people) })) : [];
   phs.forEach(p => { rows.push({ k: "ph", p }); if (!ui.collapsed[p.id]) { S.taches.filter(t => t.phase === p.id).sort((a, b) => pd(a.debut) - pd(b.debut)).forEach(t => rows.push({ k: "t", t, p })); S.jalons.filter(j => j.phase === p.id).forEach(j => rows.push({ k: "m", j, p })); } });
   const H = HH + rows.length * RH;
   let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Diagramme de Gantt" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif" font-size="11"><rect x="0" y="0" width="${W}" height="${HH}" fill="#f6fafd"/>`;
@@ -190,6 +214,7 @@ function vGantt() {
   rows.forEach((r, i) => {
     const y = HH + i * RH;
     if (r.k === "ph") svg += `<rect x="0" y="${y}" width="${W}" height="${RH}" fill="#f6fafd"/>`;
+    if (r.k === "abs") { abs.filter(a => a.personne === r.n).forEach(a => { const ax = X(pd(a.debut)), aw = Math.max(4, X(pd(a.fin) + DAY) - ax), opt = a.statut === "Option", lab = fds(a.debut) + " → " + fds(a.fin); svg += `<g class="g-abs" data-id="${esc(a.id)}" style="cursor:pointer"><title>${esc(a.personne + " · " + fd(a.debut) + " → " + fd(a.fin) + " · " + (a.statut || "") + (a.notes ? " · " + a.notes : ""))}</title><rect x="${ax}" y="${y + 6}" width="${aw}" height="${RH - 14}" rx="4" fill="${opt ? "none" : r.c}" fill-opacity=".8" stroke="${r.c}" ${opt || a.statut === "À préciser" ? 'stroke-dasharray="4 3" stroke-width="1.5"' : ""}/>${aw > 96 ? `<text x="${ax + 6}" y="${y + 19}" fill="${opt ? r.c : "#fff"}" font-size="10">${esc(lab)}</text>` : ""}</g>`; }); }
     svg += `<line x1="0" y1="${y + RH}" x2="${W}" y2="${y + RH}" stroke="#eef3f7"/>`;
     if (r.k === "ph") { const a = X(pd(r.p.debut)), b = X(pd(r.p.fin) + DAY), pr = phaseProgress(r.p.id); svg += `<rect x="${a}" y="${y + 10}" width="${b - a}" height="10" rx="5" fill="${r.p.couleur}" opacity=".35"/><rect x="${a}" y="${y + 10}" width="${(b - a) * pr / 100}" height="10" rx="5" fill="${r.p.couleur}"/><text x="${b + 6}" y="${y + 19}" fill="#0b1f2a" font-weight="bold">${r.p.id} · ${pr} %</text>`; }
     else if (r.k === "t") {
@@ -201,9 +226,10 @@ function vGantt() {
         <rect x="${a}" y="${y + 6}" width="${w}" height="${RH - 14}" rx="6" fill="${fill}" opacity=".35" ${late ? 'stroke="#b3261e" stroke-width="2"' : crit ? 'stroke="#00354c" stroke-width="2"' : ""}/>
         <rect x="${a}" y="${y + 6}" width="${w * pc / 100}" height="${RH - 14}" rx="6" fill="${fill}"/><rect class="rz" x="${a + w - 6}" y="${y + 6}" width="6" height="${RH - 14}" fill="transparent" style="cursor:ew-resize"/></g>`;
       svg += `<text x="${Math.max(a + w, f && ui.showForecast ? X(f.ff + DAY) : 0) + 6}" y="${y + 18}" fill="#3d5563" pointer-events="none">${esc(roleShort(t.responsable))}${pc ? " · " + pc + " %" : ""}${docsOfTask(t.id).length ? " · 📄" + docsOfTask(t.id).length : ""}</text>`;
-    } else { const x = X(pd(r.j.date) + DAY / 2), ok = r.j.statut === "Validé"; svg += `<g class="g-ms" style="cursor:pointer"><title>${esc(r.j.id + " · " + r.j.nom + " · " + fd(r.j.date))}</title><path d="M${x} ${y + 5} L${x + 10} ${y + 15} L${x} ${y + 25} L${x - 10} ${y + 15} Z" fill="${ok ? "#1d6b4f" : "#00354c"}"/></g><text x="${x + 14}" y="${y + 19}" fill="#00354c" font-weight="bold">${esc(r.j.id)} · ${fds(r.j.date)}</text>`;
+    } else if (r.k === "m") { const x = X(pd(r.j.date) + DAY / 2), ok = r.j.statut === "Validé"; svg += `<g class="g-ms" style="cursor:pointer"><title>${esc(r.j.id + " · " + r.j.nom + " · " + fd(r.j.date))}</title><path d="M${x} ${y + 5} L${x + 10} ${y + 15} L${x} ${y + 25} L${x - 10} ${y + 15} Z" fill="${ok ? "#1d6b4f" : "#00354c"}"/></g><text x="${x + 14}" y="${y + 19}" fill="#00354c" font-weight="bold">${esc(r.j.id)} · ${fds(r.j.date)}</text>`;
       if (ui.showBaseline && bl && bl.jalons[r.j.id] && bl.jalons[r.j.id] !== r.j.date) { const bx = X(pd(bl.jalons[r.j.id]) + DAY / 2); svg += `<path d="M${bx} ${y + 9} L${bx + 6} ${y + 15} L${bx} ${y + 21} L${bx - 6} ${y + 15} Z" fill="none" stroke="#6b8291"><title>Baseline : ${fd(bl.jalons[r.j.id])}</title></path>`; } }
   });
+  if (ui.showAbsences) abs.filter(a => a.statut !== "Option").forEach(a => { const ax = X(pd(a.debut)); svg += `<rect x="${ax}" y="${HH}" width="${Math.max(2, X(pd(a.fin) + DAY) - ax)}" height="${H - HH}" fill="${absColor(a.personne, people)}" opacity=".1" pointer-events="none"/>`; });
   if (ui.showDeps) rows.filter(r => r.k === "t").forEach(r => depsOf(r.t).forEach(dep => { const A = pos[dep], B = pos[r.t.id]; if (!A || !B) return; const mx = Math.max(A.b + 6, B.a - 8), bad = B.a < A.b; svg += `<path d="M${A.b} ${A.y} H${mx} V${B.y} H${B.a - 2}" fill="none" stroke="${bad ? "#b3261e" : "#6891a8"}" stroke-width="${bad ? 1.8 : 1.2}" ${bad ? 'stroke-dasharray="4 3"' : ""} marker-end="url(#${bad ? "arrb" : "arr"})"><title>${bad ? "Conflit : " + r.t.id + " commence avant la fin de " + dep : dep + " → " + r.t.id}</title></path>`; }));
   svg += `<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#6891a8"/></marker><marker id="arrb" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#b3261e"/></marker></defs>`;
   const tx = X(TODAY() + DAY / 2); svg += `<line x1="${tx}" y1="${HH}" x2="${tx}" y2="${H}" stroke="#b3261e" stroke-width="2"/><path d="M${tx - 6} ${HH - 8} L${tx + 6} ${HH - 8} L${tx} ${HH} Z" fill="#b3261e"/></svg>`;
@@ -212,13 +238,14 @@ function vGantt() {
     <select id="gph" aria-label="Phase"><option value="">Toutes les phases</option>${S.phases.map(p => `<option value="${p.id}" ${ui.ganttPhase === p.id ? "selected" : ""}>${p.id} — ${esc(p.nom)}</option>`).join("")}</select>
     <label class="chk"><input type="checkbox" data-o="showDeps" ${ui.showDeps ? "checked" : ""}> Dépendances</label>
     <label class="chk"><input type="checkbox" data-o="showBaseline" ${ui.showBaseline ? "checked" : ""}> Baseline ${bl ? esc(bl.id) : ""}</label>
+    <label class="chk"><input type="checkbox" data-o="showAbsences" ${ui.showAbsences ? "checked" : ""}> Absences</label>
     <label class="chk"><input type="checkbox" data-o="showForecast" ${ui.showForecast ? "checked" : ""}> Prévision</label>
     <label class="chk"><input type="checkbox" data-o="showCrit" ${ui.showCrit ? "checked" : ""}> Chemin critique</label>
     <span class="grow"></span><button class="btn sec sm" id="gexp">Déplier</button><button class="btn sec sm" id="gcol">Replier</button><button class="btn sec sm" id="gtoday">Aujourd'hui</button><button class="btn sm" id="gadd">+ Tâche</button></div>
-    <div class="gantt"><div class="g-left"><div class="g-h">Phase / étape</div>${rows.map(r => r.k === "ph" ? `<div class="g-row ph" data-ph="${r.p.id}" role="button" tabindex="0" aria-expanded="${!ui.collapsed[r.p.id]}"><span aria-hidden="true">${ui.collapsed[r.p.id] ? "▸" : "▾"}</span><span class="dot" style="background:${r.p.couleur}"></span><span class="lbl">${r.p.id} — ${esc(r.p.nom)}</span></div>`
+    <div class="gantt"><div class="g-left"><div class="g-h">Phase / étape</div>${rows.map(r => r.k === "abs" ? `<div class="g-row abs" role="link" tabindex="0"><span class="dot" style="background:${r.c}"></span><span class="lbl">Absences — ${esc(r.n)}</span></div>` : r.k === "ph" ? `<div class="g-row ph" data-ph="${r.p.id}" role="button" tabindex="0" aria-expanded="${!ui.collapsed[r.p.id]}"><span aria-hidden="true">${ui.collapsed[r.p.id] ? "▸" : "▾"}</span><span class="dot" style="background:${r.p.couleur}"></span><span class="lbl">${r.p.id} — ${esc(r.p.nom)}</span></div>`
       : r.k === "t" ? `<div class="g-row task" data-id="${r.t.id}" role="button" tabindex="0" title="${esc(r.t.nom)}"><span class="lbl">${isLate(r.t) ? "⚠ " : ""}${esc(r.t.nom)}</span></div>` : `<div class="g-row ms">◆ <span class="lbl">${esc(r.j.id)} — ${esc(r.j.nom)}</span></div>`).join("")}</div>
     <div class="g-right" id="gr">${svg}</div></div>
-    <div class="g-legend"><span>Glisser une barre pour la déplacer · tirer son bord droit pour la fin · cliquer pour modifier</span><span><i class="lg" style="background:#6b8291;height:4px"></i>baseline</span><span><i class="lg" style="border:1px dashed #b3261e"></i>prévision en retard</span><span><i class="lg" style="border:2px solid #00354c"></i>critique (marge ≤ 5 j)</span><span style="color:#b3261e">┃ aujourd'hui · ⇢ dépendance non respectée</span></div>`;
+    <div class="g-legend"><span>Glisser une barre pour la déplacer · tirer son bord droit pour la fin · cliquer pour modifier</span><span><i class="lg" style="background:#6b8291;height:4px"></i>baseline</span><span><i class="lg" style="border:1px dashed #b3261e"></i>prévision en retard</span><span><i class="lg" style="border:2px solid #00354c"></i>critique (marge ≤ 5 j)</span>${people.length && ui.showAbsences ? `<span><i class="lg" style="background:${absColor(people[0], people)}"></i>absence (pointillés : à préciser ou option)</span>` : ""}<span style="color:#b3261e">┃ aujourd'hui · ⇢ dépendance non respectée</span></div>`;
   $$(".seg button", wrap).forEach(b => b.onclick = () => { ui.zoom = b.dataset.z; save(); render(); scrollToday(); });
   $("#gph", wrap).onchange = e => { ui.ganttPhase = e.target.value; save(); render(); };
   $$("input[data-o]", wrap).forEach(c => c.onchange = () => { ui[c.dataset.o] = c.checked; save(); const sl = $("#gr").scrollLeft; rerender(); $("#gr").scrollLeft = sl; });
@@ -227,6 +254,8 @@ function vGantt() {
   $("#gtoday", wrap).onclick = scrollToday; $("#gadd", wrap).onclick = () => editItem("taches", null);
   $$(".g-row.ph", wrap).forEach(r => { const tg = () => { ui.collapsed[r.dataset.ph] = !ui.collapsed[r.dataset.ph]; save(); const sl = $("#gr").scrollLeft; rerender(); $("#gr").scrollLeft = sl; }; r.onclick = tg; r.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tg(); } }; });
   $$(".g-row.task", wrap).forEach(r => { const o = () => editItem("taches", task(r.dataset.id)); r.onclick = o; r.onkeydown = e => { if (e.key === "Enter") o(); }; });
+  $$(".g-row.abs", wrap).forEach(r => { const o = () => { location.hash = "#absences"; }; r.onclick = o; r.onkeydown = e => { if (e.key === "Enter") o(); }; });
+  $$(".g-abs", wrap).forEach(g => g.onclick = () => editItem("absences", S.absences.find(a => a.id === g.dataset.id)));
   $$(".g-ms", wrap).forEach(g => g.onclick = () => { location.hash = "#jalons"; });
   $$(".g-bar", wrap).forEach(g => g.addEventListener("pointerdown", e => {
     const t = task(g.dataset.id), mode = e.target.classList.contains("rz") ? "rz" : "mv", x0 = e.clientX, d0 = t.debut, f0 = t.fin; let moved = 0; g.setPointerCapture(e.pointerId);

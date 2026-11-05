@@ -122,6 +122,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .g-row{height:30px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:13px;border-bottom:1px solid #eef3f7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .g-row.ph{font-weight:700;background:#f6fafd;cursor:pointer}
 .g-row.ms{color:var(--sombre)}
+.g-row.abs{font-weight:600;cursor:pointer}
 .g-row .lbl{overflow:hidden;text-overflow:ellipsis}
 .g-row.task{padding-left:28px;cursor:pointer}
 .g-right{overflow-x:auto}
