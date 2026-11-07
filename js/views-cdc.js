@@ -122,42 +122,109 @@ function cdcMarkdown(onlyActive) {
   return L.join("\n");
 }
 
+/* ---------- recherche et filtres (arborescence et tableau) */
+const CDC_F0 = { q: "", theme: "", phase: "", statut: "", prio: "", dest: "", univers: "", type: "", pilote: "", compl: "" };
+let cdcF = Object.assign({}, CDC_F0, lsGet("hepvd-cdc-filtres") || {});
+const cdcFActive = () => Object.keys(CDC_F0).some(k => cdcF[k]);
+const cdcTokens = () => norm(cdcF.q).split(/\s+/).filter(Boolean);
+const CDC_COMPL = [["exig", "Exigence non rédigée"], ["verif", "Critère d'acceptation manquant"], ["quest", "Avec questions ouvertes"], ["prio", "Priorité non attribuée"], ["pilote", "Pilote non désigné"], ["source", "Source non renseignée"]];
+function cdcMatch(x) {
+  const f = cdcF;
+  if (f.theme && !thDescendants(f.theme).includes(x.theme)) return false;
+  if (f.phase && x.phase !== f.phase) return false;
+  if (f.statut === "_actifs" ? !CDC_ACTIFS.includes(x.statut) : f.statut === "_clos" ? CDC_ACTIFS.includes(x.statut) : f.statut && x.statut !== f.statut) return false;
+  if (f.prio === "_none" ? !!x.priorite : f.prio && x.priorite !== f.prio) return false;
+  if (f.dest && x.destination !== f.dest) return false;
+  if (f.univers && x.univers !== f.univers) return false;
+  if (f.type && (x.type || "Point") !== f.type) return false;
+  if (f.pilote === "_none" ? !!x.pilote : f.pilote && x.pilote !== f.pilote) return false;
+  const vide = k => !String(x[k] || "").trim();
+  if (f.compl && ({ exig: !vide("exigence"), verif: !vide("verification"), quest: vide("questionsOuvertes"), prio: !vide("priorite"), pilote: !vide("pilote"), source: !vide("source") })[f.compl]) return false;
+  const tk = cdcTokens();
+  if (tk.length) { const h = norm([x.id, x.titre, x.idee, x.exigence, x.verification, x.source, x.liens, x.notes, x.questionsOuvertes, x.publics, x.motif, x.auteur, thLabel(x.theme), x.theme].join(" ")); if (!tk.every(w => h.includes(w))) return false; }
+  return true;
+}
+function cdcHl(txt) { /* surligne les mots recherchés (insensible à la casse) */
+  let h = esc(txt); const q = String(cdcF.q || "").trim().split(/\s+/).filter(w => w.length > 1); if (!q.length) return h;
+  const re = new RegExp("(" + q.map(w => esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");
+  return h.replace(/(<[^>]*>)|([^<]+)/g, (m, tg, tx) => tg || tx.replace(re, "<mark>$1</mark>"));
+}
+function cdcFilterPanel() {
+  const sel = (k, label, opts, all) => `<div class="cdc-f"><label for="cf_${k}">${label}</label><select id="cf_${k}" data-f="${k}"><option value="">${all}</option>${opts.map(o => Array.isArray(o) ? o : [o, o]).map(o => `<option value="${esc(o[0])}" ${cdcF[k] === o[0] ? "selected" : ""}>${esc(o[1])}</option>`).join("")}</select></div>`;
+  return `<div class="card cdc-filters" role="search" aria-label="Rechercher et filtrer les points du cahier des charges">
+    <div class="cdc-q"><label for="cf_q" class="vh">Rechercher</label><input type="search" id="cf_q" data-f="q" value="${esc(cdcF.q)}" placeholder="Rechercher : mots, CDC-012, Q-021, GA4, accessibilité…" autocomplete="off"></div>
+    <div class="cdc-fgrid">
+      ${sel("theme", "Thématique", thOpts(), "Toutes")}
+      ${sel("phase", "Phase d'instruction", phaseOpts(), "Toutes")}
+      ${sel("statut", "Statut", [["_actifs", "Actifs (hors clos)"], ["_clos", "Reportés, écartés, fusionnés"], ...CDC_STATUTS], "Tous")}
+      ${sel("prio", "Priorité", [["_none", "Non attribuée"], ...CDC_PRIO], "Toutes")}
+      ${sel("dest", "Destination", CDC_DEST, "Toutes")}
+      ${sel("univers", "Univers", CDC_UNIVERS, "Tous")}
+      ${sel("type", "Nature", CDC_TYPES, "Toutes")}
+      ${sel("pilote", "Pilote", [["_none", "Non désigné"], ...roleOpts()], "Tous")}
+      ${sel("compl", "Complétude", CDC_COMPL, "Toutes les fiches")}
+    </div>
+    <div class="cdc-fbar"><span id="cdcCount" class="small" role="status" aria-live="polite"></span><span class="grow"></span><button class="btn ghost sm" id="cdcReset" ${cdcFActive() ? "" : "hidden"}>Réinitialiser les filtres</button></div></div>`;
+}
+
 /* ---------- vue */
-let cdcTab = "arbre", cdcTheme = "", cdcOpen = null;
+let cdcTab = "arbre", cdcOpen = null;
 function vCdc() {
   if (!cdcOpen) cdcOpen = new Set(thChildren("").map(t => t.id));
   const c = s => S.cdc.filter(x => x.statut === s).length;
   const vides = thFlat("").filter(x => !thChildren(x.t.id).length && !S.cdc.some(p => p.theme === x.t.id && CDC_ACTIFS.includes(p.statut)));
   const d = el(`<p class="muted intro">Réservoir de tout ce que le cahier des charges devra traiter. Les idées sont capturées au fil de l'eau puis mûrissent jusqu'à des exigences atomiques et vérifiables, versées au cahier des charges des besoins (étude CMS, P6) et au cahier des charges de développement (P7, DOC-135). Les identifiants <b>CDC-nnn</b> et <b>TH-nn</b> ne changent jamais, même si l'arborescence est réorganisée.</p>
-    <div class="bento" style="margin-bottom:var(--gap)">${["Idée", "Qualifiée", "En instruction", "Rédigée", "Validée"].map(s => `<div class="card c2 kpi mini"><div class="v">${c(s)}</div><div class="l">${s}</div></div>`).join("")}<div class="card c2 kpi mini"><div class="v">${c("Reportée") + c("Écartée") + c("Fusionnée")}</div><div class="l">Reportées, écartées, fusionnées</div></div></div>
+    <div class="bento" style="margin-bottom:var(--gap)">${["Idée", "Qualifiée", "En instruction", "Rédigée", "Validée"].map(s => `<button class="card c2 kpi mini cdc-kpi${cdcF.statut === s ? " on" : ""}" data-kst="${s}" title="Filtrer : ${s}"><div class="v">${c(s)}</div><div class="l">${s}</div></button>`).join("")}<button class="card c2 kpi mini cdc-kpi${cdcF.statut === "_clos" ? " on" : ""}" data-kst="_clos" title="Filtrer : reportées, écartées, fusionnées"><div class="v">${c("Reportée") + c("Écartée") + c("Fusionnée")}</div><div class="l">Reportées, écartées, fusionnées</div></button></div>
     ${tabs("cdc", [["arbre", "Arborescence"], ["tableau", "Tableau"], ["themes", "Thématiques"], ["glossaire", "Glossaire"], ["methode", "Méthode"]], cdcTab)}
     <div id="cdcBody" style="margin-top:var(--gap)"></div>`);
   bindTabs(d, "cdc", k => { cdcTab = k; render(); });
+  $$("[data-kst]", d).forEach(x => x.onclick = () => { cdcF.statut = cdcF.statut === x.dataset.kst ? "" : x.dataset.kst; lsSet("hepvd-cdc-filtres", cdcF); if (!["arbre", "tableau"].includes(cdcTab)) cdcTab = "arbre"; render(); });
   const b = $("#cdcBody", d);
-  const bar = `<div class="bar"><select id="cdcTh" aria-label="Filtrer par thématique"><option value="">Toutes les thématiques</option>${thOpts().map(o => `<option value="${esc(o[0])}" ${o[0] === cdcTheme ? "selected" : ""}>${esc(o[1])}</option>`).join("")}</select><span class="grow"></span>
-    <button class="btn sec sm" id="cdcMd">Exporter en Markdown</button><button class="btn sm" id="cdcCap">+ Capturer une idée</button></div>`;
-  if (cdcTab === "arbre") {
-    const sel = cdcTheme ? [thById(cdcTheme)].filter(Boolean) : thChildren("");
-    const ptRow = (x, depth) => `<li class="cdc-pt${CDC_ACTIFS.includes(x.statut) ? "" : " off"}" style="--d:${depth}"><a class="chip" href="#" data-cdc="${esc(x.id)}">${esc(x.id)}</a> <a href="#" data-cdc="${esc(x.id)}" class="cdc-t">${esc(x.titre)}</a> <span class="cdc-m">${x.type && x.type !== "Point" ? tag(x.type, "") : ""}${tag(x.statut)}${x.priorite ? tag(x.priorite.replace(/ \(.*\)/, ""), "") : ""}${x.phase ? " " + phaseChip(x.phase) : ""}</span></li>` + cdcKids(x.id).map(k => ptRow(k, depth + 1)).join("");
-    const thBlock = (t, depth) => {
-      const ids = thDescendants(t.id), all = S.cdc.filter(x => ids.includes(x.theme)), act = all.filter(x => CDC_ACTIFS.includes(x.statut)).length, open = cdcOpen.has(t.id) || !!cdcTheme;
-      const own = S.cdc.filter(x => x.theme === t.id && !x.parent).sort((a, b) => String(a.id).localeCompare(String(b.id), "fr", { numeric: true }));
-      return `<div class="cdc-th" style="--d:${depth}"><div class="cdc-th-h"><button class="btn ghost sm cdc-tog" data-th="${esc(t.id)}" aria-expanded="${open}" aria-label="${open ? "Replier" : "Déplier"} ${esc(t.titre)}">${open ? "▾" : "▸"}</button>
-        <span class="cdc-num">${esc(thNumber(t.id))}</span><a href="#" class="cdc-th-t" data-thedit="${esc(t.id)}">${esc(t.titre)}</a><span class="small muted">${esc(t.id)}</span><span class="grow"></span>
-        <span class="small muted">${act} actif${act > 1 ? "s" : ""}${all.length > act ? ` · ${all.length - act} clos` : ""}</span><button class="btn ghost sm" data-addpt="${esc(t.id)}" title="Capturer une idée dans cette thématique">+ Idée</button></div>
-        ${open ? `${own.length ? `<ul class="cdc-pts">${own.map(x => ptRow(x, 0)).join("")}</ul>` : ""}${thChildren(t.id).map(c => thBlock(c, depth + 1)).join("")}${!own.length && !thChildren(t.id).length ? `<p class="small muted cdc-empty">Aucun point pour l'instant — angle mort à surveiller.</p>` : ""}` : ""}</div>`;
+  const bar = `<div class="bar"><span class="grow"></span><button class="btn sec sm" id="cdcMd">Exporter en Markdown</button><button class="btn sm" id="cdcCap">+ Capturer une idée</button></div>`;
+  if (cdcTab === "arbre" || cdcTab === "tableau") {
+    b.innerHTML = bar + cdcFilterPanel() + (cdcTab === "arbre" && vides.length && !cdcFActive() ? `<p class="small" style="margin:0 0 10px">⚠ ${vides.length} thématique(s) sans point actif : ${vides.map(x => `<a href="#" data-addpt="${esc(x.t.id)}">${esc(thNumber(x.t.id))} ${esc(x.t.titre)}</a>`).join(" · ")}</p>` : "") + `<div id="cdcRes"></div>`;
+    const res = $("#cdcRes", b);
+    const draw = () => {
+      const on = cdcFActive(), hits = S.cdc.filter(cdcMatch);
+      $("#cdcCount", b).textContent = on ? `${hits.length} point${hits.length > 1 ? "s" : ""} sur ${S.cdc.length}` : `${S.cdc.length} points · aucun filtre`;
+      $("#cdcReset", b).hidden = !on;
+      if (cdcTab === "tableau") {
+        res.innerHTML = "";
+        const t = genericTable("cdc", { stateKey: "cdc-tab", filter: cdcMatch, preset: { statut: "Idée", type: "Point", auteur: USER, theme: cdcF.theme || "", phase: cdcF.phase || "" },
+          extraCol: { l: "Thématique", f: x => `<span class="small">${esc(thLabel(x.theme))}</span>${x.parent ? `<br><span class="small muted">sous ${esc(x.parent)}</span>` : ""}` } });
+        ["input.tq", "select.tp", "select.ts"].forEach(q => { const e = $(q, t); if (e) e.remove(); }); /* la recherche et les filtres du panneau remplacent ceux du tableau */
+        tableState["cdc-tab"].q = ""; tableState["cdc-tab"].phase = ""; tableState["cdc-tab"].statut = "";
+        res.appendChild(t); return;
+      }
+      const hitSet = new Set(hits.map(x => x.id));
+      const ptRow = (x, depth) => {
+        const kids = cdcKids(x.id).filter(k => !on || hitSet.has(k.id)), orphan = on && x.parent && !hitSet.has(x.parent);
+        return `<li class="cdc-pt${CDC_ACTIFS.includes(x.statut) ? "" : " off"}" style="--d:${depth}"><a class="chip" href="#" data-cdc="${esc(x.id)}">${esc(x.id)}</a> <a href="#" data-cdc="${esc(x.id)}" class="cdc-t">${cdcHl(x.titre)}${orphan ? ` <span class="small muted">↳ sous ${esc(x.parent)}</span>` : ""}</a> <span class="cdc-m">${x.type && x.type !== "Point" ? tag(x.type, "") : ""}${tag(x.statut)}${x.priorite ? tag(x.priorite.replace(/ \(.*\)/, ""), "") : ""}${x.phase ? " " + phaseChip(x.phase) : ""}</span></li>` + kids.map(k => ptRow(k, depth + 1)).join("");
+      };
+      const thBlock = (t, depth) => {
+        const ids = thDescendants(t.id), all = S.cdc.filter(x => ids.includes(x.theme)), act = all.filter(x => CDC_ACTIFS.includes(x.statut)).length;
+        const branchHits = all.filter(x => hitSet.has(x.id)).length;
+        if (on && !branchHits) return "";
+        const open = on || cdcOpen.has(t.id);
+        const own = S.cdc.filter(x => x.theme === t.id && (on ? hitSet.has(x.id) && !(x.parent && hitSet.has(x.parent)) : !x.parent)).sort((a, b2) => String(a.id).localeCompare(String(b2.id), "fr", { numeric: true }));
+        const subs = thChildren(t.id).map(c2 => thBlock(c2, depth + 1)).join("");
+        return `<div class="cdc-th" style="--d:${depth}"><div class="cdc-th-h"><button class="btn ghost sm cdc-tog" data-th="${esc(t.id)}" aria-expanded="${open}" aria-label="${open ? "Replier" : "Déplier"} ${esc(t.titre)}" ${on ? "disabled" : ""}>${open ? "▾" : "▸"}</button>
+          <span class="cdc-num">${esc(thNumber(t.id))}</span><a href="#" class="cdc-th-t" data-thedit="${esc(t.id)}">${cdcHl(t.titre)}</a><span class="small muted">${esc(t.id)}</span><span class="grow"></span>
+          <span class="small muted">${on ? `${branchHits} résultat${branchHits > 1 ? "s" : ""}` : `${act} actif${act > 1 ? "s" : ""}${all.length > act ? ` · ${all.length - act} clos` : ""}`}</span><button class="btn ghost sm" data-addpt="${esc(t.id)}" title="Capturer une idée dans cette thématique">+ Idée</button></div>
+          ${open ? `${own.length ? `<ul class="cdc-pts">${own.map(x => ptRow(x, 0)).join("")}</ul>` : ""}${subs}${!on && !own.length && !thChildren(t.id).length ? `<p class="small muted cdc-empty">Aucun point pour l'instant — angle mort à surveiller.</p>` : ""}` : ""}</div>`;
+      };
+      const tree = thChildren("").map(t => thBlock(t, 0)).join("");
+      res.innerHTML = `${on ? "" : `<div class="bar"><button class="btn sec sm" id="cdcAllO">Tout déplier</button><button class="btn sec sm" id="cdcAllC">Tout replier</button></div>`}<div class="card cdc-tree">${tree || `<p class="empty">Aucun point ne correspond à ces critères.</p>`}</div>`;
+      $$(".cdc-tog", res).forEach(x => x.onclick = () => { const id = x.dataset.th; cdcOpen.has(id) ? cdcOpen.delete(id) : cdcOpen.add(id); draw(); });
+      $$("[data-thedit]", res).forEach(x => x.onclick = e => { e.preventDefault(); editItem("cdcThemes", thById(x.dataset.thedit)); });
+      $$("[data-addpt]", res).forEach(x => x.onclick = e => { e.preventDefault(); cdcCapture(x.dataset.addpt); });
+      if ($("#cdcAllO", res)) { $("#cdcAllO", res).onclick = () => { S.cdcThemes.forEach(t => cdcOpen.add(t.id)); draw(); }; $("#cdcAllC", res).onclick = () => { cdcOpen.clear(); draw(); }; }
     };
-    b.innerHTML = bar + (vides.length ? `<p class="small" style="margin:0 0 10px">⚠ ${vides.length} thématique(s) sans point actif : ${vides.map(x => `<a href="#" data-addpt="${esc(x.t.id)}">${esc(thNumber(x.t.id))} ${esc(x.t.titre)}</a>`).join(" · ")}</p>` : "") +
-      `<div class="bar"><button class="btn sec sm" id="cdcAllO">Tout déplier</button><button class="btn sec sm" id="cdcAllC">Tout replier</button></div><div class="card cdc-tree">${sel.map(t => thBlock(t, 0)).join("") || `<p class="empty">Aucune thématique.</p>`}</div>`;
-    $$(".cdc-tog", b).forEach(x => x.onclick = () => { const id = x.dataset.th; cdcOpen.has(id) ? cdcOpen.delete(id) : cdcOpen.add(id); render(); });
-    $$("[data-thedit]", b).forEach(x => x.onclick = e => { e.preventDefault(); editItem("cdcThemes", thById(x.dataset.thedit)); });
-    $("#cdcAllO", b).onclick = () => { S.cdcThemes.forEach(t => cdcOpen.add(t.id)); render(); };
-    $("#cdcAllC", b).onclick = () => { cdcOpen.clear(); render(); };
-  } else if (cdcTab === "tableau") {
-    b.innerHTML = bar;
-    const ids = cdcTheme ? thDescendants(cdcTheme) : null;
-    b.appendChild(genericTable("cdc", { stateKey: "cdc-" + cdcTheme, filter: ids ? x => ids.includes(x.theme) : null, preset: { statut: "Idée", type: "Point", auteur: USER, theme: cdcTheme || "" },
-      extraCol: { l: "Thématique", f: x => `<span class="small">${esc(thLabel(x.theme))}</span>${x.parent ? `<br><span class="small muted">sous ${esc(x.parent)}</span>` : ""}` } }));
+    const setF = (k, v) => { cdcF[k] = v; lsSet("hepvd-cdc-filtres", cdcF); draw(); $$("[data-kst]", d).forEach(x => x.classList.toggle("on", cdcF.statut === x.dataset.kst)); };
+    $$("select[data-f]", b).forEach(x => x.onchange = () => setF(x.dataset.f, x.value));
+    let tq; $("#cf_q", b).oninput = e => { clearTimeout(tq); const v = e.target.value; tq = setTimeout(() => setF("q", v), 180); };
+    $("#cdcReset", b).onclick = () => { cdcF = Object.assign({}, CDC_F0); lsSet("hepvd-cdc-filtres", cdcF); render(); };
+    draw();
   } else if (cdcTab === "themes") {
     b.innerHTML = `<p class="small muted" style="margin-top:0">Arborescence évolutive, sans limite de profondeur. Pour réorganiser : modifiez la thématique parente ou l'ordre. Le numéro de section (1, 1.2…) est recalculé ; l'identifiant TH-nn reste stable. Une thématique qui contient encore des points ou des sous-thématiques ne peut pas être supprimée.</p>`;
     b.appendChild(genericTable("cdcThemes", { extraCol: { l: "Section · points", f: t => `${esc(thNumber(t.id))} · ${S.cdc.filter(x => x.theme === t.id).length}` } }));
@@ -187,8 +254,7 @@ function vCdc() {
         <li>Enregistrer et rendre un récapitulatif court.</li></ol>
         <p class="small muted">Rythme : revue mensuelle des nouvelles idées (30 min, co-chefs) · à chaque gate, point « état du registre » (fiches par statut, thématiques vides). Référence : <code>00_PILOTAGE/10_Registre-cahier-des-charges.md</code>.</p></div></div>`;
   }
-  const th = $("#cdcTh", b); if (th) th.onchange = e => { cdcTheme = e.target.value; render(); };
-  const cap = $("#cdcCap", b); if (cap) cap.onclick = () => cdcCapture(cdcTheme);
+  const cap = $("#cdcCap", b); if (cap) cap.onclick = () => cdcCapture(cdcF.theme);
   $$("[data-addpt]", b).forEach(x => x.onclick = e => { e.preventDefault(); cdcCapture(x.dataset.addpt); });
   const md = $("#cdcMd", b); if (md) md.onclick = () => download(`HEPVD_Registre-CDC_${todayIso()}.md`, cdcMarkdown(confirm("Exporter uniquement les points actifs ?\n(OK : actifs seulement · Annuler : tous les points, y compris reportés et écartés)")), "text/markdown;charset=utf-8");
   return d;
