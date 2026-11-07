@@ -20,6 +20,8 @@ const VIEWS = [
   { id: "decisions", t: "Décisions", ic: "⚖", f: () => vDecisions(), n: () => S.decisions.filter(d => ["À instruire", "Proposée"].includes(d.statut)).length },
   { id: "changements", t: "Changements", ic: "↻", f: () => vTable("changements", "Demandes de changement : délai > 10 jours ouvrés sur un gate, budget > CHF 500, ou périmètre. Décision du Copil.") },
   { id: "historique", t: "Historique", ic: "⌚", f: () => vHistorique() },
+  { grp: "Cahier des charges" },
+  { id: "cdc", t: "Registre CDC", ic: "☷", f: () => vCdc() },
   { grp: "Design System" },
   { id: "ds", t: "Design System", ic: "◧", f: () => vDS() },
   { grp: "Organisation" },
@@ -36,7 +38,7 @@ const VIEWS = [
   { grp: "Administration", show: () => SERVER && ROLE === "admin" },
   { id: "admin", t: "Console d'administration", ic: "✉", f: () => vAdmin(), show: () => SERVER && ROLE === "admin" },
 ];
-const OUVRIR = { taches: "taches", decisions: "decisions", questions: "questions", actions: "actions", risques: "risques", documents: "documents" };
+const OUVRIR = { taches: "taches", decisions: "decisions", questions: "questions", actions: "actions", risques: "risques", documents: "documents", cdc: "cdc" };
 function route() { const h = (location.hash || "#overview").slice(1).split("/"); return { v: h[0], p: decodeURIComponent(h[1] || "") }; }
 function nav() {
   const cur = route().v === "phase" ? "phases" : route().v === "fichier" ? "fichiers" : route().v;

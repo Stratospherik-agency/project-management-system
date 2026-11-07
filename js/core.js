@@ -35,7 +35,7 @@ const ABS_GROUPES = ["Co-chefs", "Copil", "Équipe projet", "Externe"];
 /* ===================================================== état & persistance */
 let S = null, SERVER = false, serverRev = 0, saveTimer = null, pendingJournal = [], USER = "", AUTH = false, ROLE = "admin", STORAGE = "";
 const SEED = window.PROJECT_DATA ? clone(window.PROJECT_DATA) : null;
-const COLS = ["roles", "phases", "taches", "jalons", "documents", "risques", "decisions", "questions", "actions", "parties", "systemes", "agents", "budget", "changements", "rapports", "journal", "contrastes", "baselines", "dsVersions", "dsElements", "dsDemandes", "dsBesoins", "absences"];
+const COLS = ["roles", "phases", "taches", "jalons", "documents", "risques", "decisions", "questions", "actions", "parties", "systemes", "agents", "budget", "changements", "rapports", "journal", "contrastes", "baselines", "dsVersions", "dsElements", "dsDemandes", "dsBesoins", "absences", "cdc", "cdcThemes", "cdcGlossaire"];
 function normalize(d) {
   COLS.forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
   if (!d.raci) d.raci = { activites: [] };
@@ -43,6 +43,7 @@ function normalize(d) {
   d.ui = Object.assign({ collapsed: {}, zoom: "mois", ganttPhase: "", showDeps: true, showBaseline: true, showAbsences: true, baseline: "" }, d.ui || {});
   d.documents.forEach(x => { if (!Array.isArray(x.taches)) x.taches = String(x.taches || "").split(/[,; ]+/).filter(Boolean); if (!Array.isArray(x.versions)) x.versions = []; });
   d.risques.forEach(x => { if (!Array.isArray(x.revues)) x.revues = []; });
+  d.cdc.forEach(x => { if (!Array.isArray(x.hist)) x.hist = []; });
   d.budget.forEach(x => { if (!x.annee) x.annee = 2027; if (!x.scenarios) x.scenarios = ((d.meta && Array.isArray(d.meta.scenarios) && d.meta.scenarios.length) ? d.meta.scenarios : SCEN_DEFAUT).join(", "); });
   if (d.meta.budgetReserve == null) d.meta.budgetReserve = 0.1;
   if (!d.meta.budgetAnnee) d.meta.budgetAnnee = 2027;
@@ -128,6 +129,7 @@ function refChips(str) {
     if (/^D-/.test(id)) return `<a class="chip" href="#" data-dec="${esc(id)}">${esc(id)}</a>`;
     if (/^Q-/.test(id)) return `<a class="chip" href="#" data-q="${esc(id)}">${esc(id)}</a>`;
     if (/^R-/.test(id)) return `<a class="chip" href="#" data-risk="${esc(id)}">${esc(id)}</a>`;
+    if (/^CDC-/.test(id)) return `<a class="chip" href="#" data-cdc="${esc(id)}">${esc(id)}</a>`;
     return `<span class="chip">${esc(id)}</span>`;
   }).join(" ");
 }

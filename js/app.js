@@ -9,6 +9,7 @@ window.addEventListener("hashchange", () => { render(); $("#main").focus({ preve
 (async function init() {
   if (!SEED) { document.body.innerHTML = "<p style='padding:30px'>Fichier data/projet-data.js introuvable.</p>"; return; }
   await load();
+  if (typeof cdcImportInitial === "function") cdcImportInitial();
   if (!location.hash) history.replaceState(null, "", "#overview");
   render();
   if (!USER) askUser();
