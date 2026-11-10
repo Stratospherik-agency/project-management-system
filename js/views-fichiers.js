@@ -11,12 +11,32 @@ const typeF = p => TYPES_F[extOf(p)] || extOf(p).toUpperCase() || "Fichier";
 const urlF = (p, dl) => "projet/" + p.split("/").map(encodeURIComponent).join("/") + (dl ? "?dl=1" : "");
 const lienF = p => "#fichier/" + p.split("/").map(encodeURIComponent).join("/");
 const tailleF = n => n >= 1e6 ? (n / 1e6).toLocaleString("fr-CH", { maximumFractionDigits: 1 }) + " Mo" : n >= 1e3 ? Math.round(n / 1e3) + " ko" : n + " o";
-const docDe = p => S.documents.find(d => d.chemin === p || (d.versions || []).some(v => v.chemin === p));
+/* ---------- formats associés : un même document en plusieurs formats (Word + PDF…), reconnu par le nom de fichier sans extension */
+const baseF = p => String(p || "").replace(/\.[a-z0-9]+$/i, "");
+const ORDRE_F = ["docx", "doc", "pdf", "xlsx", "xls", "pptx", "ppt", "md", "csv"];
+let FMAP = null;
+function indexFormats(F) {
+  const m = {}; F.files.forEach(f => (m[baseF(f.path)] = m[baseF(f.path)] || []).push(f.path));
+  const rang = x => { const i = ORDRE_F.indexOf(extOf(x)); return i < 0 ? 99 : i; };
+  Object.values(m).forEach(l => l.sort((a, b) => rang(a) - rang(b)));
+  return m;
+}
+const formatsDe = p => { if (!p || !FICH) return []; if (!FMAP) FMAP = indexFormats(FICH); return FMAP[baseF(p)] || []; };
+/* Boutons « Word ↓ PDF ↓ » : ouvrir dans la visionneuse ou télécharger chaque format présent dans le dossier synchronisé */
+function boutonsFormats(p) {
+  const l = formatsDe(p); if (!l.length) return "";
+  return `<span class="fmts">${l.map(f => { const t = typeF(f), nom = f.split("/").pop(); return `<span class="fmt"><a class="btn sec sm" href="${lienF(f)}" target="_blank" rel="noopener" title="Ouvrir ${esc(nom)}">${esc(t)}</a><a class="btn ghost sm" href="${urlF(f, true)}" download title="Télécharger ${esc(nom)}" aria-label="Télécharger la version ${esc(t)}">↓</a></span>`; }).join("")}</span>`;
+}
+/* Remplit les emplacements [data-fmts] une fois la liste des fichiers chargée ; sinon le contenu initial (lien simple) reste affiché */
+function remplirFormats(scope) { $$("[data-fmts]", scope).forEach(s => { const h = boutonsFormats(s.dataset.fmts); s.innerHTML = h || `<span class="small muted" title="Fichier absent du dossier synchronisé">${esc(s.dataset.alt || "Fichier non synchronisé")}</span>`; }); }
+function avecFormats(scope) { if (!SERVER || !CFG.docsBase) return; if (FICH) return remplirFormats(scope); chargerFichiers().then(() => remplirFormats(scope)).catch(() => { }); }
+const docDe = p => { const b = baseF(p); return S.documents.find(d => d.chemin === p || (d.versions || []).some(v => v.chemin === p)) || S.documents.find(d => (d.chemin && baseF(d.chemin) === b) || (d.versions || []).some(v => v.chemin && baseF(v.chemin) === b)); };
 
 async function chargerFichiers(force) {
   if (FICH && !force) return FICH;
   const r = await apiFetch("scan"); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Dossier projet indisponible");
   const j = await r.json();
+  FMAP = null;
   FICH = { files: j.files.filter(f => !/^00_PILOTAGE\/Tableau-de-bord\//.test(f.path)).sort((a, b) => a.path.localeCompare(b.path, "fr", { numeric: true })), t: Date.now() };
   return FICH;
 }
@@ -65,10 +85,11 @@ function rendreExplorateur(box, F) {
 /* ---------- visionneuse */
 function vFichier(p) {
   const nom = p.split("/").pop(), d = docDe(p), dossier = p.split("/").slice(0, -1).join("/");
-  const wrap = el(`<div class="bar"><a class="btn sec sm" href="#fichiers" id="fvBack">← ${esc(dossier ? dossier.split("/").pop() : "Dossier projet")}</a><span class="small muted fx-crumb">${esc(p.split("/").join(" / "))}</span><span class="grow"></span>${d ? `<a class="btn sec sm" href="#" id="fvDoc">Fiche ${esc(d.id)}</a>` : ""}<a class="btn sec sm" href="${urlF(p)}" target="_blank" rel="noopener">Ouvrir dans un onglet</a><a class="btn sm" href="${urlF(p, true)}" download>Télécharger</a></div>
+  const wrap = el(`<div class="bar"><a class="btn sec sm" href="#fichiers" id="fvBack">← ${esc(dossier ? dossier.split("/").pop() : "Dossier projet")}</a><span class="small muted fx-crumb">${esc(p.split("/").join(" / "))}</span><span class="grow"></span><span id="fvAlt"></span>${d ? `<a class="btn sec sm" href="#" id="fvDoc">Fiche ${esc(d.id)}</a>` : ""}<a class="btn sec sm" href="${urlF(p)}" target="_blank" rel="noopener">Ouvrir dans un onglet</a><a class="btn sm" href="${urlF(p, true)}" download>Télécharger</a></div>
     <div class="card fv"><div id="fvBody"><p class="muted">Chargement de l'aperçu…</p></div></div>`);
   $("#fvBack", wrap).onclick = () => { fichDossier = dossier; };
   if (d) $("#fvDoc", wrap).onclick = e => { e.preventDefault(); openDoc(d); };
+  chargerFichiers().then(() => { const autres = formatsDe(p).filter(f => f !== p); $("#fvAlt", wrap).innerHTML = autres.map(f => `<a class="btn sec sm" href="${lienF(f)}" title="${esc(f.split("/").pop())}">Voir en ${esc(typeF(f))}</a>`).join(" "); }).catch(() => { });
   apercu(p, $("#fvBody", wrap)).catch(e => { $("#fvBody", wrap).innerHTML = `<p class="red">Aperçu impossible : ${esc(e.message)}</p><p><a class="btn sm" href="${urlF(p, true)}" download>Télécharger le fichier</a></p>`; });
   return wrap;
 }
