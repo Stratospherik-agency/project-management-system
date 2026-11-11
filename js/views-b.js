@@ -132,7 +132,7 @@ function vRisques() {
   m += `<div></div>${[1, 2, 3, 4, 5].map(i => `<div class="ax">${i}</div>`).join("")}</div><div class="small muted axes"><span>↑ Probabilité</span><span>Impact →</span></div>`;
   const cats = {}; open.forEach(r => cats[r.categorie] = (cats[r.categorie] || 0) + 1);
   const exp = open.reduce((s, r) => s + (+r.impactJours || 0) * (+r.proba || 0) / 5, 0);
-  const wrap = el(`<p class="muted intro">Registre complet. Chaque risque a un signal d'alerte, une stratégie, un plan de contingence et un historique de revues. Processus : <code>00_PILOTAGE/07_Plan-management-risques.md</code>.</p>
+  const wrap = el(`<p class="muted intro">Registre complet. Chaque risque a un signal d'alerte, une stratégie, un plan de contingence et un historique de revues. Processus : <code>00_PILOTAGE/UCOM_2026-10_REFWEB_PX_Plan_management_risques_POT_v0.1.md</code>.</p>
   <div class="bento" style="margin-bottom:var(--gap)"><div class="card c7"><div class="hrow"><h2>Matrice</h2><div class="seg"><button data-m="inh" aria-pressed="${rst.mode === "inh"}">Inhérent</button><button data-m="res" aria-pressed="${rst.mode === "res"}">Résiduel</button></div></div>${m}</div>
   <div class="card c5"><h2>Synthèse</h2>${[4, 3, 2, 1].map(s => `<div class="li"><span class="tag sev-${s}">${SEVL[s]}</span><span>${open.filter(r => sev(sc(r)[0] * sc(r)[1]) === s).length} risque(s)</span></div>`).join("")}
     <div class="li"><b>${Math.round(exp)} j</b><span class="small">exposition calendaire pondérée (Σ impact délai × probabilité)</span></div>
@@ -199,7 +199,7 @@ function vDS() {
   const pub = S.dsVersions.filter(v => v.statut === "Publiée").sort((a, b) => pd(b.date) - pd(a.date))[0];
   const E = S.dsElements, byS = {}; E.forEach(e => byS[e.statut] = (byS[e.statut] || 0) + 1);
   const B = S.dsBesoins, bRec = B.filter(b => ["Reçu", "Décidé", "Sans objet"].includes(b.statutSuivi)).length;
-  const gdoc = S.documents.find(x => x.chemin === "05_DESIGN-SYSTEM/00_Guide-Design-System.md");
+  const gdoc = S.documents.find(x => x.chemin === "05_DESIGN-SYSTEM/UCOM_2026-10_REFWEB_P4_Guide_Design_System_POT_v0.1.md");
   const wrap = el(`${tabs("ds", [["synthese", "Synthèse"], ["versions", "Versions & release notes"], ["inventaire", "Inventaire"], ["demandes", "Demandes d'évolution"], ["besoins", "Besoins"], ["historique", "Historique DS"]], dsTab)}<div id="dsb"></div>`);
   bindTabs(wrap, "ds", k => { dsTab = k; rerender(); });
   const b = $("#dsb", wrap);
@@ -212,7 +212,7 @@ function vDS() {
       <h3 style="margin-top:14px">Méthode</h3><p class="small">Le guide décrit comment construire, remettre en question et faire évoluer le DS.</p>${gdoc ? `<p>${docChip(gdoc)} <a href="${esc(docUrl(gdoc))}" target="_blank" rel="noopener">Ouvrir le guide</a></p>` : ""}</div></div>`;
   if (dsTab === "versions") { b.appendChild(el(`<p class="muted intro">Versionnage sémantique. Une version publiée est figée : toute évolution passe par une nouvelle version avec release notes.</p>`)); b.appendChild(genericTable("dsVersions")); }
   if (dsTab === "inventaire") { b.appendChild(el(`<p class="muted intro">État de chaque fondation, token, composant et pattern. Un élément « Validé » a passé la définition de terminé (voir le guide, section 3).</p>`)); b.appendChild(genericTable("dsElements")); }
-  if (dsTab === "demandes") { b.appendChild(el(`<p class="muted intro">Toute évolution du DS (nouveau composant, modification, correction, dette, dépréciation) commence par une demande. Modèle : <code>_MODELES/Demande-evolution-DS.md</code>.</p>`)); b.appendChild(genericTable("dsDemandes")); }
+  if (dsTab === "demandes") { b.appendChild(el(`<p class="muted intro">Toute évolution du DS (nouveau composant, modification, correction, dette, dépréciation) commence par une demande. Modèle : <code>_MODELES/UCOM_2026-10_REFWEB_PX_Modele_Demande_evolution_DS_POT_v1.0.md</code>.</p>`)); b.appendChild(genericTable("dsDemandes")); }
   if (dsTab === "besoins") { b.appendChild(el(`<p class="muted intro">Ce dont nous avons besoin pour construire le Design System (guide, section 2). Mettez à jour le statut à chaque réception.</p>`)); b.appendChild(genericTable("dsBesoins")); }
   if (dsTab === "historique") { const j = S.journal.filter(x => /Design System|Élément du Design|Demande d'évolution|Besoin pour le Design/.test(x.type)); b.innerHTML = `<div class="tw"><table><thead><tr><th>Date</th><th>Par</th><th>Objet</th><th>Modification</th></tr></thead><tbody>${j.map(x => `<tr class="static"><td class="nowrap small">${fdt(x.ts)}</td><td class="small">${esc(x.user)}</td><td>${esc(x.type)} ${esc(x.id)}<br><span class="small muted">${esc(x.resume || "")}</span></td><td class="small">${esc(x.action)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">Aucune modification du Design System enregistrée pour le moment.</td></tr>'}</tbody></table></div>`; }
   if ($("#goB", wrap)) $("#goB", wrap).onclick = e => { e.preventDefault(); dsTab = "besoins"; rerender(); };

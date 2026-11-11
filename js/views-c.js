@@ -201,7 +201,7 @@ function vParties() {
 }
 /* ---------- Agents */
 function vAgents() {
-  const wrap = el(`<p class="muted intro">Agents IA par phase. Brief obligatoire (<code>_MODELES/Brief-agent-IA.md</code>), relecture humaine et revue critique avant validation. Skills sur mesure : hepvd-contexte-refonte, hepvd-charte, hepvd-rapport-hebdo, hepvd-revue-gate, hepvd-redaction-web.</p>
+  const wrap = el(`<p class="muted intro">Agents IA par phase. Brief obligatoire (<code>_MODELES/UCOM_2026-10_REFWEB_PX_Modele_Brief_agent_IA_POT_v1.0.md</code>), relecture humaine et revue critique avant validation. Skills sur mesure : hepvd-contexte-refonte, hepvd-charte, hepvd-rapport-hebdo, hepvd-revue-gate, hepvd-redaction-web.</p>
     <div class="bar"><select id="aph" aria-label="Phase"><option value="">Toutes les phases</option>${S.phases.map(p => `<option value="${p.id}">${p.id} — ${esc(p.nom)}</option>`).join("")}</select><span class="grow"></span><button class="btn sm" id="aadd">+ Agent</button></div><div class="bento" id="ag"></div>`);
   const fill = ph => { $("#ag", wrap).innerHTML = S.agents.filter(a => !ph || (phase(ph).agents || "").split(/,\s*/).includes(a.id)).map(a => `<div class="card c4 agent" data-a="${esc(a.id)}" role="button" tabindex="0"><div class="small muted">${esc(a.id)} · ${esc(a.phases)}</div><h3 style="margin:4px 0">${esc(a.nom)}</h3><p class="small">${esc(a.mission)}</p><p class="small"><b>Livrables :</b> ${esc(a.sorties)}</p><p class="small muted"><b>Skills :</b> ${esc(a.skills)}</p></div>`).join("");
     $$("[data-a]", wrap).forEach(c => { const o = () => editItem("agents", S.agents.find(a => a.id === c.dataset.a)); c.onclick = o; c.onkeydown = e => { if (e.key === "Enter") o(); }; }); };

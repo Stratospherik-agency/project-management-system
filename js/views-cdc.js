@@ -252,7 +252,7 @@ function vCdc() {
         <li>Classer dans une thématique (ou proposer une nouvelle branche).</li><li>Attribuer un identifiant CDC-nnn, statut « Idée ».</li>
         <li>Relier aux questionnements, risques, décisions, documents et à la phase d'instruction.</li><li>Signaler ce qui manque et proposer une priorité, confirmée par les co-chefs.</li>
         <li>Enregistrer et rendre un récapitulatif court.</li></ol>
-        <p class="small muted">Rythme : revue mensuelle des nouvelles idées (30 min, co-chefs) · à chaque gate, point « état du registre » (fiches par statut, thématiques vides). Référence : <code>00_PILOTAGE/10_Registre-cahier-des-charges.md</code>.</p></div></div>`;
+        <p class="small muted">Rythme : revue mensuelle des nouvelles idées (30 min, co-chefs) · à chaque gate, point « état du registre » (fiches par statut, thématiques vides). Référence : <code>00_PILOTAGE/UCOM_2026-11_REFWEB_PX_Registre_cahier_des_charges_POT_v1.0.md</code>.</p></div></div>`;
   }
   const cap = $("#cdcCap", b); if (cap) cap.onclick = () => cdcCapture(cdcF.theme);
   $$("[data-addpt]", b).forEach(x => x.onclick = e => { e.preventDefault(); cdcCapture(x.dataset.addpt); });
