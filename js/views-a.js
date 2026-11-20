@@ -10,6 +10,7 @@ const VIEWS = [
   { id: "jalons", t: "Jalons & gates", ic: "◆", f: () => vGates() },
   { grp: "Documents" },
   { id: "documents", t: "Documents", ic: "▣", f: () => vDocuments() },
+  { id: "contributeurs", t: "Contributeurs du site", ic: "◍", f: () => vContributeurs() },
   { id: "fichiers", t: "Dossier projet", ic: "▤", f: () => vFichiers(), show: () => SERVER && !!CFG.docsBase },
   { grp: "Risques & anticipation" },
   { id: "anticipation", t: "Anticipation & alertes", ic: "⏱", f: () => vAnticipation(), n: () => alerts().filter(a => a.niv === 3).length },

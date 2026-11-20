@@ -33,6 +33,7 @@ const sevTag = s => `<span class="tag sev-${sev(s)}">${s} · ${SEVL[sev(s)]}</sp
 
 const ABS_GROUPES = ["Co-chefs", "Copil", "Équipe projet", "Externe"];
 /* ===================================================== état & persistance */
+let DOUBLE_AUTH = false;
 let S = null, SERVER = false, serverRev = 0, saveTimer = null, pendingJournal = [], USER = "", AUTH = false, ROLE = "admin", STORAGE = "";
 const SEED = window.PROJECT_DATA ? clone(window.PROJECT_DATA) : null;
 const COLS = ["roles", "phases", "taches", "jalons", "documents", "risques", "decisions", "questions", "actions", "parties", "systemes", "agents", "budget", "changements", "rapports", "journal", "contrastes", "baselines", "dsVersions", "dsElements", "dsDemandes", "dsBesoins", "absences", "cdc", "cdcThemes", "cdcGlossaire"];
@@ -40,6 +41,8 @@ function normalize(d) {
   COLS.forEach(k => { if (!Array.isArray(d[k])) d[k] = []; });
   if (!d.raci) d.raci = { activites: [] };
   if (!d.meta) d.meta = {};
+  if (!d.annuaire || typeof d.annuaire !== "object") d.annuaire = {};
+  ["entites", "personnes"].forEach(k => { if (!Array.isArray(d.annuaire[k])) d.annuaire[k] = []; });
   d.ui = Object.assign({ collapsed: {}, zoom: "mois", ganttPhase: "", showDeps: true, showBaseline: true, showAbsences: true, baseline: "" }, d.ui || {});
   d.documents.forEach(x => { if (!Array.isArray(x.taches)) x.taches = String(x.taches || "").split(/[,; ]+/).filter(Boolean); if (!Array.isArray(x.versions)) x.versions = []; });
   d.risques.forEach(x => { if (!Array.isArray(x.revues)) x.revues = []; });
@@ -60,7 +63,7 @@ async function detectServer() {
     const r = await fetch(api("whoami"), { cache: "no-store" });
     if (r.status === 401) { const j = await r.json().catch(() => ({})); location.href = j.redirect || "connexion"; await new Promise(() => {}); }
     if (!r.ok) return false; const j = await r.json();
-    AUTH = !!j.auth; STORAGE = j.storage || ""; CFG.docsBase = j.docsBase || null;
+    AUTH = !!j.auth; STORAGE = j.storage || ""; CFG.docsBase = j.docsBase || null; DOUBLE_AUTH = !!j.doubleAuth;
     if (AUTH && j.user) { USER = j.user.nom; ROLE = j.user.role; }
     return true;
   } catch (e) { return false; }
@@ -349,9 +352,13 @@ function accountMenu() {
   openModal("Mon compte", `<div class="full"><p style="margin-top:0"><b>${esc(USER)}</b> · ${ROLE_L[ROLE] || ROLE}</p></div>
     <div class="full"><h3>Changer de mot de passe</h3></div>
     <div><label for="pwA">Mot de passe actuel</label><input id="pwA" type="password" autocomplete="current-password"></div>
-    <div><label for="pwN">Nouveau mot de passe (12 caractères min.)</label><input id="pwN" type="password" autocomplete="new-password"></div>`,
+    <div><label for="pwN">Nouveau mot de passe (12 caractères min.)</label><input id="pwN" type="password" autocomplete="new-password"></div>
+    ${DOUBLE_AUTH ? `<div class="full"><h3>Double authentification</h3><p class="small muted" style="margin-top:0">Activée. Si vous avez utilisé ou égaré vos codes de secours, générez-en de nouveaux : les anciens ne fonctionneront plus.</p></div>
+    <div><label for="mfC">Code actuel de votre application</label><input id="mfC" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div><div style="align-self:end"><button class="btn sec" id="mfG" type="button">Nouveaux codes de secours</button></div><div class="full" id="mfR"></div>` : ""}`,
     `<button class="btn danger l" id="pwOut">Se déconnecter</button><button class="btn sec" id="pwC">Fermer</button><button class="btn" id="pwS">Changer le mot de passe</button>`, () => {
       $("#pwC").onclick = closeModal;
+      if ($("#mfG")) $("#mfG").onclick = async () => { const r = await apiFetch("double-authentification/secours", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: $("#mfC").value.trim() }) }); const j = await r.json().catch(() => ({}));
+        if (!r.ok) return toast(j.error || "Erreur"); $("#mfR").innerHTML = `<p class="small"><b>Nouveaux codes de secours</b> — notez-les maintenant, ils ne seront plus affichés :</p><div class="mfa-codes">${j.codesSecours.map(c => `<div>${esc(c)}</div>`).join("")}</div>`; $("#mfC").value = ""; };
       $("#pwOut").onclick = async () => { await fetch(api("deconnexion"), { method: "POST" }); location.href = "connexion"; };
       $("#pwS").onclick = async () => { const r = await apiFetch("mot-de-passe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ancien: $("#pwA").value, nouveau: $("#pwN").value }) }); const j = await r.json().catch(() => ({})); if (r.ok) { toast("Mot de passe modifié"); closeModal(); } else toast(j.error || "Erreur"); };
     });

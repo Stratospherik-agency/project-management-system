@@ -23,8 +23,28 @@
       <p class="err" id="err" role="alert"></p>
       <button class="btn" type="submit" id="sb">Se connecter</button>
     </form>
+    <form id="mf" novalidate hidden>
+      <div id="mfAct" hidden>
+        <p class="small"><b>Activez la double authentification.</b> Elle est obligatoire pour accéder à la plateforme. Installez une application d'authentification sur votre téléphone (Microsoft Authenticator, Google Authenticator, etc.), ajoutez un compte en scannant ce code, puis saisissez le code à 6 chiffres affiché.</p>
+        <div class="mfa-qr" id="mfQr" aria-hidden="true"></div>
+        <p class="small">Impossible de scanner ? Saisissez cette clé dans l'application :</p>
+        <p class="mfa-secret" id="mfSec"></p>
+      </div>
+      <p class="small" id="mfAsk" hidden>Saisissez le code à 6 chiffres affiché dans votre application d'authentification. Sans votre téléphone, saisissez l'un de vos codes de secours.</p>
+      <label for="mcode">Code</label><input id="mcode" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="12" required>
+      <p class="err" id="merr" role="alert"></p>
+      <button class="btn" type="submit" id="mb">Valider</button>
+      <button class="btn ghost" type="button" id="mback">Recommencer avec le mot de passe</button>
+    </form>
+    <div id="mok" hidden>
+      <p class="small"><b>Double authentification activée.</b> Conservez ces 8 codes de secours en lieu sûr (gestionnaire de mots de passe, document imprimé). Chacun permet une seule connexion si vous n'avez pas votre téléphone. Ils ne seront plus affichés.</p>
+      <div class="mfa-codes" id="mcodes"></div>
+      <label class="chk"><input type="checkbox" id="mnote"> J'ai conservé mes codes de secours</label>
+      <button class="btn" type="button" id="mgo" disabled>Accéder à la plateforme</button>
+    </div>
   </div>
 </main>
+<script src="/assets/vendor/qrcode.js"></script>
 <script src="/connexion.js"></script>
 </body>
 </html>
