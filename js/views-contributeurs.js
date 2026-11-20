@@ -54,6 +54,7 @@ function annEntites() {
 /* ---------- vue */
 function vContributeurs() {
   const A = annuaire(), ok = annOK(), P = A.personnes;
+  if (cst.ent && !annEnt(cst.ent)) cst.ent = "";
   const n = f => P.filter(f).length;
   const opt = (v, l, cur) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(l)}</option>`;
   const wrap = el(`<p class="muted intro">Entités du site, responsables et contributrices et contributeurs qui éditent leurs pages. Ces informations servent à toute la gestion du site (accès, formation, communication) et alimentent le formulaire Jotform des ateliers.</p>
@@ -110,7 +111,7 @@ function vContributeurs() {
   $("#cres", wrap).addEventListener("keydown", e => { if (e.key === "Enter") openRow(e); });
   if (ok) { $("#cadd", wrap).onclick = () => annEditPersonne(null); $("#ceadd", wrap).onclick = () => annEditEntite(null); $("#cimp", wrap).onclick = annImport; $("#ccren", wrap).onclick = annCreneaux; }
   $("#cxls", wrap).onclick = annExportXlsx;
-  $("#ccsv", wrap).onclick = () => annExportCsv(annPersonnes());
+  $("#ccsv", wrap).onclick = () => cst.tab === "entites" ? download(`HEPVD_entites_${todayIso()}.csv`, "﻿" + [ANN_COL_E.join(";")].concat(annEntites().map(e => annRowE(e).map(annCsvCell).join(";"))).join("\n"), "text/csv;charset=utf-8") : annExportCsv(annPersonnes());
   $("#cjot", wrap).onclick = annJotform;
   setTimeout(() => { const i = $("#cq"); if (i && !("ontouchstart" in window)) i.focus(); }, 0);
   return wrap;
@@ -141,7 +142,7 @@ function annEditPersonne(p) {
       $("#pEnt").onchange = () => { const l = $$("#pEnt input:checked").map(i => annCourt(annEnt(i.value))); $("#pEntSel").textContent = l.length ? "Sélection : " + l.join(", ") : "Aucune entité sélectionnée."; };
       $("#pEntQ").oninput = e => { const q = norm(e.target.value); $$("#pEnt label").forEach(l => l.hidden = q && !l.dataset.n.includes(q)); };
       if (!ok) return;
-      if ($("#pDel")) $("#pDel").onclick = () => { if (!confirm(`Supprimer ${o.nom} de l'annuaire ? (la suppression reste tracée dans l'historique)`)) return; A.personnes = A.personnes.filter(x => x.id !== o.id); save({ type: ANN_J_P, id: o.id, action: "Suppression", resume: `${o.nom} · ${o.email}` }); closeModal(); toast("Supprimé"); rerender(); };
+      if ($("#pDel")) $("#pDel").onclick = () => { if (!confirm(`Supprimer ${o.nom} de l'annuaire ? (la suppression reste tracée dans l'historique)`)) return; A.personnes = A.personnes.filter(x => x.id !== o.id); save({ type: ANN_J_P, id: o.id, action: "Suppression", resume: o.nom }); closeModal(); toast("Supprimé"); rerender(); };
       $("#pS").onclick = () => {
         const out = Object.assign({}, o, { nom: $("#pNom").value.replace(/\s+/g, " ").trim(), email: annMail($("#pMail").value), identifiant: $("#pId").value.trim().toLowerCase(), formation: $("#pForm").value, acces: $("#pAcc").value, atelier: $("#pInsc").value, creneau: $("#pCren").value, notes: $("#pNotes").value.trim(), entites: $$("#pEnt input:checked").map(i => i.value) });
         if (!out.nom) { $("#pNom").focus(); return toast("Le nom est obligatoire"); }
@@ -200,7 +201,8 @@ function annCreneaux() {
 }
 
 /* ---------- export */
-const annCsvCell = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+/* valeur commençant par = + - @ (formule) : préfixée d'une apostrophe pour qu'Excel l'affiche comme du texte */
+const annCsvCell = v => { let t = String(v ?? ""); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
 function annRowP(p) { const E = (p.entites || []).map(annEnt).filter(Boolean); return [p.id, p.nom, p.email, p.identifiant, E.map(e => e.id).join(" ; "), E.map(annLabel).join(" ; "), p.formation, p.acces, p.atelier || ANN_INSC[0], p.creneau, p.notes]; }
 function annRowE(e) { return [e.id, e.type, e.nom, e.abrev, (e.responsables || []).join(" ; "), e.commentaire]; }
 function annExportCsv(list) { const lines = [ANN_COL_P.join(";")].concat(list.map(p => annRowP(p).map(annCsvCell).join(";"))); download(`HEPVD_contributeurs_${todayIso()}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8"); }
@@ -225,7 +227,7 @@ function annParseCsv(txt) {
   if (cell || row.length) { row.push(cell); rows.push(row); }
   return rows.filter(r => r.some(x => String(x).trim()));
 }
-const annCellTxt = v => { if (v == null) return ""; if (typeof v === "object") { if (v.text) return String(v.text); if (v.richText) return v.richText.map(t => t.text).join(""); if (v.result != null) return String(v.result); if (v.hyperlink) return String(v.text || v.hyperlink).replace(/^mailto:/, ""); if (v instanceof Date) return v.toISOString().slice(0, 10); } return String(v); };
+const annCellTxt = v => { if (v == null) return ""; if (typeof v === "object") { if (v instanceof Date) return v.toISOString().slice(0, 10); if (v.text != null) return typeof v.text === "object" ? annCellTxt(v.text) : String(v.text); if (v.error) return ""; if (v.richText) return v.richText.map(t => t.text).join(""); if (v.result != null) return String(v.result); if (v.hyperlink) return String(v.text || v.hyperlink).replace(/^mailto:/, ""); if (v instanceof Date) return v.toISOString().slice(0, 10); } return String(v); };
 async function annLireFichier(f) {
   const out = {};
   const objets = rows => { const h = (rows[0] || []).map(x => String(x).trim()); return rows.slice(1).map(r => Object.fromEntries(h.map((k, i) => [k, String(r[i] ?? "").trim()]))); };
@@ -234,6 +236,8 @@ async function annLireFichier(f) {
   wb.eachSheet(ws => { const rows = []; ws.eachRow({ includeEmpty: false }, r => { const v = []; for (let i = 1; i <= ws.columnCount; i++) v.push(annCellTxt(r.getCell(i).value).trim()); rows.push(v); }); out[ws.name] = objets(rows); });
   return out;
 }
+const annColExact = (o, nom) => { const k = Object.keys(o).find(k => norm(k) === norm(nom)); return k ? String(o[k] || "").trim() : ""; };
+const annA = (o, ...noms) => Object.keys(o).some(k => noms.some(n => norm(k) === norm(n)));
 const annCol = (o, ...noms) => { const k = Object.keys(o).find(k => noms.some(n => norm(k) === norm(n))) || Object.keys(o).find(k => noms.some(n => norm(k).includes(norm(n)))); return k ? String(o[k] || "").trim() : ""; };
 
 /* ---------- import (format de l'export) */
@@ -259,8 +263,8 @@ function annPlanImport(feuilles, remplacer) {
   const E = remplacer ? [] : clone(A.entites), P = remplacer ? [] : clone(A.personnes), err = [], st = { eN: 0, eM: 0, pN: 0, pM: 0, pI: 0 };
   const cleE = e => norm(annLabel(e));
   (fE ? feuilles[fE] : []).forEach((r, i) => {
-    const o = { id: annCol(r, "ID"), type: annCol(r, "Type"), nom: annCol(r, "Entité", "Nom").replace(/\s+/g, " "), abrev: annCol(r, "Abréviation"), responsables: annCol(r, "Responsable(s)", "Responsable").split(";").map(s => s.trim()).filter(Boolean), commentaire: annCol(r, "Commentaire") };
-    if (!o.nom) return; if (o.type && !ANN_TYPES.includes(o.type)) err.push(`Entité ligne ${i + 2} : type « ${o.type} » inconnu (types admis : ${ANN_TYPES.join(", ")}).`);
+    const o = { id: annColExact(r, "ID"), type: annCol(r, "Type"), nom: annCol(r, "Entité", "Nom").replace(/\s+/g, " "), abrev: annCol(r, "Abréviation"), responsables: annCol(r, "Responsable(s)", "Responsable").split(";").map(s => s.trim()).filter(Boolean), commentaire: annCol(r, "Commentaire") };
+    if (!o.nom) return; if (!o.id || !/^ENT-\d+$/.test(o.id)) o.id = ""; if (o.type && !ANN_TYPES.includes(o.type)) err.push(`Entité ligne ${i + 2} : type « ${o.type} » inconnu (types admis : ${ANN_TYPES.join(", ")}).`);
     const ex = E.find(x => o.id && x.id === o.id) || E.find(x => cleE(x) === cleE(o));
     if (ex) { Object.assign(ex, o, { id: ex.id }); st.eM++; } else { if (!o.id || E.some(x => x.id === o.id)) o.id = annNextId(E, "ENT-"); E.push(o); st.eN++; }
   });
@@ -270,13 +274,26 @@ function annPlanImport(feuilles, remplacer) {
     if (!annValidMail(email)) { st.pI++; err.push(`Contributeurs ligne ${i + 2} : adresse « ${email} » invalide, ligne ignorée.`); return; }
     const ids = annCol(r, "Entités (ID)"), noms = annCol(r, "Entités", "Entité"), ents = []; (ids ? ids.split(/[;,]/) : noms.split(";")).forEach(s => { if (!s.trim()) return; const e = trouveEnt(s); if (e) ents.push(e.id); else err.push(`Contributeurs ligne ${i + 2} (${email}) : entité « ${s.trim()} » introuvable.`); });
     const on = v => /^(oui|x|yes|1|vrai)$/i.test(String(v).trim()) ? "Oui" : "Non";
-    const o = { nom: annCol(r, "Nom", "Prénom et nom").replace(/\s+/g, " "), email, identifiant: annCol(r, "Identifiant").toLowerCase(), entites: [...new Set(ents)], formation: on(annCol(r, "Formé·e à Jahia", "Formation")), acces: on(annCol(r, "Accès à Jahia", "Accès")), atelier: ANN_INSC.includes(annCol(r, "Inscription atelier")) ? annCol(r, "Inscription atelier") : ANN_INSC[0], creneau: annCol(r, "Créneau"), notes: annCol(r, "Notes") };
+    /* seuls les champs dont la colonne existe dans le fichier sont repris : un import partiel n'efface rien */
+    const o = {}, has = (...n) => annA(r, ...n);
+    if (has("Nom", "Prénom et nom")) o.nom = annCol(r, "Nom", "Prénom et nom").replace(/\s+/g, " ");
+    if (has("Identifiant", "Identifiant HEP Vaud")) o.identifiant = annCol(r, "Identifiant", "Identifiant HEP Vaud").toLowerCase();
+    if (has("Formé·e à Jahia", "Formation")) o.formation = on(annCol(r, "Formé·e à Jahia", "Formation"));
+    if (has("Accès à Jahia", "Accès")) o.acces = on(annCol(r, "Accès à Jahia", "Accès"));
+    if (has("Inscription atelier") && ANN_INSC.includes(annCol(r, "Inscription atelier"))) o.atelier = annCol(r, "Inscription atelier");
+    if (has("Créneau")) o.creneau = annCol(r, "Créneau");
+    if (has("Notes")) o.notes = annCol(r, "Notes");
+    if (ents.length) o.entites = [...new Set(ents)];
+    if (o.nom === "") delete o.nom;
     const ex = P.find(x => x.email === email);
-    if (ex) { Object.assign(ex, o, { id: ex.id, entites: o.entites.length ? o.entites : ex.entites }); st.pM++; } else { o.id = annCol(r, "ID") && !P.some(x => x.id === annCol(r, "ID")) ? annCol(r, "ID") : annNextId(P, "PER-"); P.push(o); st.pN++; }
+    if (ex) { Object.assign(ex, o); st.pM++; }
+    else { if (!o.nom) { st.pI++; err.push(`Contributeurs ligne ${i + 2} (${email}) : nom manquant pour une nouvelle personne, ligne ignorée.`); return; }
+      const idf = annColExact(r, "ID"); P.push(Object.assign({ id: idf && /^PER-\d+$/.test(idf) && !P.some(x => x.id === idf) ? idf : annNextId(P, "PER-"), email, identifiant: "", entites: [], formation: "Non", acces: "Non", atelier: ANN_INSC[0], creneau: "", notes: "" }, o)); st.pN++; }
   });
   const dbl = {}; P.forEach(p => { if (p.identifiant) (dbl[p.identifiant] = dbl[p.identifiant] || []).push(p.email); }); Object.entries(dbl).filter(([, l]) => l.length > 1).forEach(([k, l]) => err.push(`Identifiant ${k} utilisé par ${l.join(" et ")}.`));
   const sansEnt = P.filter(p => !p.entites.length).length;
   const ok = (st.eN + st.eM + st.pN + st.pM) > 0;
+  if (remplacer && (!E.length || !P.length)) err.unshift(`Attention : après remplacement, l'annuaire compterait ${E.length} entité(s) et ${P.length} personne(s).`);
   const resume = `${st.eN} entité(s) ajoutée(s), ${st.eM} mise(s) à jour ; ${st.pN} personne(s) ajoutée(s), ${st.pM} mise(s) à jour${st.pI ? `, ${st.pI} ligne(s) ignorée(s)` : ""}`;
   const html = `<div class="card blue"><b>Aperçu</b> — feuilles lues : ${noms.map(esc).join(", ")}<br>${esc(resume)}.<br>Après import : ${E.length} entité(s), ${P.length} personne(s)${sansEnt ? `, dont ${sansEnt} sans entité` : ""}.${remplacer ? "<br><b>Remplacement complet :</b> l'annuaire actuel sera remplacé." : ""}</div>
     ${err.length ? `<p class="small"><b>${err.length} point(s) à vérifier :</b></p><ul class="small">${err.slice(0, 40).map(x => `<li>${esc(x)}</li>`).join("")}${err.length > 40 ? `<li>… et ${err.length - 40} autre(s)</li>` : ""}</ul>` : ""}${ok ? "" : '<p class="err">Aucune donnée reconnue : vérifiez les noms de colonnes (voir l\'export Excel).</p>'}`;
@@ -301,14 +318,15 @@ function annJotform() {
       if (!ok) return; let plan = null;
       $("#jF").onchange = async () => { const f = $("#jF").files[0]; if (!f) return; $("#jP").innerHTML = '<p class="small muted">Lecture…</p>';
         try { const fe = await annLireFichier(f), rows = Object.values(fe)[0] || []; plan = annPlanJotform(rows); plan.fichier = f.name; $("#jP").innerHTML = plan.html; $("#jS").disabled = !plan.maj.length; } catch (e) { $("#jP").innerHTML = `<p class="err">Fichier illisible : ${esc(e.message)}</p>`; } };
-      $("#jS").onclick = () => { if (!plan) return; plan.maj.forEach(m => { const p = A.personnes.find(x => x.id === m.id); if (p) { p.atelier = p.atelier === "Formé·e en atelier" ? p.atelier : "Inscrit·e"; p.creneau = m.creneau; } });
+      $("#jS").onclick = () => { if (!plan) return; plan.maj.forEach(m => { const p = A.personnes.find(x => x.id === m.id); if (p) { p.atelier = p.atelier === "Formé·e en atelier" ? p.atelier : "Inscrit·e"; if (m.creneau) p.creneau = m.creneau; } });
         save({ type: ANN_J_A, id: "", action: `Import des inscriptions Jotform (${plan.fichier}) : ${plan.maj.length} inscription(s) appliquée(s)${plan.inconnus ? `, ${plan.inconnus} réponse(s) non reconnue(s)` : ""}` }); closeModal(); toast("Inscriptions appliquées"); rerender(); };
     }, true);
 }
 function annPlanJotform(rows) {
   const A = annuaire(), maj = [], pb = []; let inconnus = 0;
-  const jour = c => norm((c.split("·")[1] || "").trim()).replace(/^(lundi|mardi|mercredi|jeudi|vendredi) /, "").replace("1er ", "1 ");
-  const trouveCr = v => { if (!v) return ""; const n = norm(v).replace("1er ", "1 "); return A.creneaux.find(c => norm(c) === n) || A.creneaux.find(c => jour(c) && n.includes(jour(c))) || v; };
+  const jour = c => norm((c.split("·")[1] || "").trim()).replace(/^(lundi|mardi|mercredi|jeudi|vendredi) /, "").replace(/\b1er /, "1 ");
+  const memeJour = (n, j) => j && new RegExp("(^|[^0-9])" + j.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(n);
+  const trouveCr = v => { if (!v) return ""; const n = norm(v).replace(/\b1er /, "1 "); return A.creneaux.find(c => norm(c) === n) || A.creneaux.find(c => memeJour(n, jour(c))) || v; };
   rows.forEach((r, i) => {
     const mail = annMail(annCol(r, "E-mail HEP Vaud", "E-mail", "Adresse e-mail", "Email")), ide = annCol(r, "Identifiant HEP Vaud", "Identifiant").toLowerCase(), cr = trouveCr(annCol(r, "Créneau souhaité", "Créneau"));
     if (!mail && !ide) return;
@@ -316,7 +334,9 @@ function annPlanJotform(rows) {
     if (!pm && !pi) { inconnus++; pb.push(`Ligne ${i + 2} : ${mail || ide} ne figure pas dans l'annuaire.`); return; }
     if (pm && pi && pm !== pi) { inconnus++; pb.push(`Ligne ${i + 2} : l'e-mail ${mail} et l'identifiant ${ide} correspondent à deux personnes différentes.`); return; }
     if (pm && ide && pm.identifiant && pm.identifiant !== ide) pb.push(`Ligne ${i + 2} : identifiant saisi ${ide}, annuaire ${pm.identifiant} (${pm.nom}).`);
-    const p = pm || pi; if (cr && !A.creneaux.includes(cr)) pb.push(`Ligne ${i + 2} : créneau « ${cr} » absent de la liste des créneaux.`);
+    const p = pm || pi; if (["Absent·e", "Dispensé·e"].includes(p.atelier)) pb.push(`Ligne ${i + 2} : ${p.nom} était « ${p.atelier} » et repasse à « Inscrit·e ».`);
+    if (!cr) pb.push(`Ligne ${i + 2} : aucun créneau pour ${p.nom}${p.creneau ? " : le créneau actuel est conservé" : ""}.`);
+    if (cr && !A.creneaux.includes(cr)) pb.push(`Ligne ${i + 2} : créneau « ${cr} » absent de la liste des créneaux.`);
     const prev = maj.findIndex(m => m.id === p.id); if (prev >= 0) maj.splice(prev, 1);
     maj.push({ id: p.id, nom: p.nom, creneau: cr, avant: p.creneau });
   });

@@ -239,7 +239,7 @@ function vDonnees() {
     $("#uAdd", d).onclick = () => editUser(null); loadUsers();
   }
   $("#dxj", d).onclick = () => download(`HEPVD_pilotage_${todayIso()}.json`, JSON.stringify(S, null, 1), "application/json");
-  $("#dxs", d).onclick = () => download("projet-data.js", `/* Export du ${fd(todayIso())} */\nwindow.PROJECT_DATA = ${JSON.stringify(S, null, 1)};\n`, "text/javascript");
+  $("#dxs", d).onclick = () => { const x = clone(S); delete x.annuaire; /* données personnelles : jamais dans projet-data.js (dépôt Git) */ download("projet-data.js", `/* Export du ${fd(todayIso())} — sans l'annuaire des contributeurs */\nwindow.PROJECT_DATA = ${JSON.stringify(x, null, 1)};\n`, "text/javascript"); };
   if ($("#oldx", d)) $("#oldx", d).onclick = () => download("HEPVD_pilotage_v0.1.json", JSON.stringify(old, null, 1), "application/json");
   $("#dim", d).onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { const j = JSON.parse(rd.result); if (!j.taches || !j.phases) throw 0; if (!confirm("Remplacer toutes les données actuelles par ce fichier ?")) return; S = normalize(j); save({ type: "Données", id: "", action: "Import de " + f.name }); toast("Import réussi"); render(); } catch (x) { alert("Fichier invalide."); } }; rd.readAsText(f); };
   $("#drs", d).onclick = () => { if (confirm("Réinitialiser toutes les données ? Exportez d'abord si nécessaire.")) { const j = S.journal; S = normalize(clone(SEED)); S.journal = j; save({ type: "Données", id: "", action: "Réinitialisation aux données initiales" }); render(); } };

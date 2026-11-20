@@ -37,7 +37,7 @@
     e.preventDefault(); $("#merr").textContent = ""; $("#mb").disabled = true;
     try {
       const { r, j } = await post(etape === "activation" ? "/api/connexion/activer" : "/api/connexion/code", { code: $("#mcode").value.trim() });
-      if (r.ok && j.codesSecours) { $("#mf").hidden = true; $("#mok").hidden = false; $("#lt").textContent = "Codes de secours"; $("#mcodes").innerHTML = j.codesSecours.map(c => `<div>${c}</div>`).join(""); $("#mnote").focus(); }
+      if (r.ok && j.codesSecours) { $("#mf").hidden = true; $("#mok").hidden = false; $("#lt").textContent = "Codes de secours"; $("#mcodes").replaceChildren(...j.codesSecours.map(c => { const d = document.createElement("div"); d.textContent = c; return d; })); $("#mnote").focus(); }
       else if (r.ok) { if (j.secoursRestants !== undefined) alert(`Connexion avec un code de secours. Il vous en reste ${j.secoursRestants}. Pensez à en générer de nouveaux dans « Mon compte ».`); location.href = "/#overview"; return; }
       else if (j.recommencer) recommencer(j.error);
       else { $("#merr").textContent = j.error || "Erreur " + r.status; $("#mcode").select(); }

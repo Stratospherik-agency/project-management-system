@@ -114,6 +114,10 @@ const totpVerif = (secret, code, dernier) => { code = String(code || "").replace
 const hashSecours = c => crypto.createHash("sha256").update(String(c).toUpperCase().replace(/[^A-Z0-9]/g, "")).digest("hex");
 const nouveauxSecours = () => Array.from({ length: 8 }, () => { const x = crypto.randomBytes(5).toString("hex").toUpperCase().slice(0, 8); return x.slice(0, 4) + "-" + x.slice(4); });
 const otpUri = (login, secret) => `otpauth://totp/${encodeURIComponent("HEP Vaud pilotage:" + login)}?secret=${secret}&issuer=${encodeURIComponent("HEP Vaud pilotage")}&algorithm=SHA1&digits=6&period=30`;
+const ECHECS_CODE = {}; /* échecs de code par compte, quelle que soit l'adresse : 10 par heure, puis blocage d'une heure */
+const compteBloque = login => { const f = ECHECS_CODE[login]; return f && f.n >= 10 && Date.now() - f.t < 3600e3; };
+const echecCompte = login => { let f = ECHECS_CODE[login]; if (!f || Date.now() - f.t > 3600e3) f = ECHECS_CODE[login] = { n: 0, t: Date.now() }; f.n++;
+  if (f.n === 10) { console.log(`Double authentification bloquée 1 h pour « ${login} » (10 codes incorrects).`); NOTIF.securite("blocage", { titre: `Compte bloqué 1 heure : ${login}`, detail: "10 codes de double authentification incorrects en moins d'une heure. Si la personne n'est pas à l'origine de ces essais, son mot de passe est probablement connu : le changer." }); } };
 const ATTENTE = {}; /* étape intermédiaire de connexion : mot de passe vérifié, code TOTP attendu (10 minutes, 5 essais) */
 function ouvrirAttente(req, res, usr) {
   const tok = crypto.randomBytes(32).toString("hex"), a = { login: usr.login, exp: Date.now() + 10 * 60e3, essais: 0 };
@@ -188,7 +192,8 @@ function walk(dir, base, out, depth) {
     else if (e.isFile()) { const st = fs.statSync(full); out.push({ path: rel, size: st.size, mtime: st.mtime.toISOString() }); }
   }
 }
-const ipOf = req => (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
+/* derrière le proxy de l'hébergeur : la dernière adresse de X-Forwarded-For est celle ajoutée par le proxy (les précédentes peuvent être forgées par le client) */
+const ipOf = req => (req.headers["x-forwarded-for"] || "").split(",").map(s => s.trim()).filter(Boolean).pop() || req.socket.remoteAddress;
 const PUBLIC = new Set(["/api/sync/manifeste", "/api/sync/fichier", "/api/sync/fin", "/connexion", "/installation", "/connexion.js", "/app.css", "/assets/logo-hep.svg", "/assets/vendor/qrcode.js", "/api/connexion", "/api/connexion/code", "/api/connexion/activer", "/api/installation", "/api/etat-installation", "/favicon.ico", "/robots.txt"]);
 
 /* ================================================================ routes */
@@ -226,15 +231,18 @@ http.createServer(async (req, res) => {
     if ((p === "/api/connexion/code" || p === "/api/connexion/activer") && req.method === "POST") {
       if (!MFA) return send(req, res, 400, { error: "Double authentification désactivée." });
       if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
-      const tok = cookies(req).hepvd_a, a = ATTENTE[tok], b = await jbody(req);
+      let b; try { b = await jbody(req); } catch (e) { return send(req, res, 400, { error: "Requête invalide." }); }
+      const tok = cookies(req).hepvd_a, a = ATTENTE[tok];
       const usr = a && USERS.find(x => x.login === a.login && x.actif !== false);
       if (!a || a.exp < Date.now() || !usr) { if (tok) delete ATTENTE[tok]; return send(req, res, 401, { error: "Session de connexion expirée : saisissez à nouveau votre mot de passe.", recommencer: true }); }
-      const echec = msg => { a.essais++; fail(ip, a.login); if (a.essais >= 5) { delete ATTENTE[tok]; return send(req, res, 401, { error: "Trop d'essais : saisissez à nouveau votre mot de passe.", recommencer: true }); } return send(req, res, 401, { error: msg }); };
+      if (compteBloque(a.login)) { delete ATTENTE[tok]; return send(req, res, 429, { error: "Trop de codes incorrects pour ce compte : réessayez dans une heure.", recommencer: true }); }
+      const echec = msg => { a.essais++; fail(ip, a.login); echecCompte(a.login); if (a.essais >= 5) { delete ATTENTE[tok]; return send(req, res, 401, { error: "Trop d'essais : saisissez à nouveau votre mot de passe.", recommencer: true }); } return send(req, res, 401, { error: msg }); };
       if (p === "/api/connexion/activer") {
-        if (a.etape !== "activation") return send(req, res, 400, { error: "Étape inattendue." });
+        if (a.etape !== "activation" || (usr.mfa && usr.mfa.actif)) { delete ATTENTE[tok]; return send(req, res, 400, { error: "La double authentification est déjà activée pour ce compte : saisissez à nouveau votre mot de passe.", recommencer: true }); }
         const st = totpVerif(a.secret, b.code, 0); if (st < 0) return echec("Code incorrect. Vérifiez l'heure de votre téléphone et saisissez le code affiché maintenant.");
         const codes = nouveauxSecours(); usr.mfa = { actif: true, secret: a.secret, depuis: now(), dernierPas: st, secours: codes.map(hashSecours) };
-        delete ATTENTE[tok]; usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
+        Object.keys(ATTENTE).forEach(k => { if (ATTENTE[k].login === usr.login) delete ATTENTE[k]; }); delete ECHECS_CODE[usr.login];
+        usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
         NOTIF.securite("compte", { titre: `Double authentification activée : ${usr.login}`, detail: `Activée par la personne à sa connexion.` });
         return send(req, res, 200, { ok: true, codesSecours: codes });
       }
@@ -243,7 +251,7 @@ http.createServer(async (req, res) => {
       if (/^\d{6}$/.test(brut.replace(/\s/g, ""))) { const st = totpVerif(usr.mfa.secret, brut, usr.mfa.dernierPas); if (st >= 0) { usr.mfa.dernierPas = st; ok = true; } }
       else { const h = hashSecours(brut), i = (usr.mfa.secours || []).indexOf(h); if (i >= 0) { usr.mfa.secours.splice(i, 1); ok = viaSecours = true; } }
       if (!ok) return echec("Code incorrect.");
-      delete ATTENTE[tok]; usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
+      delete ATTENTE[tok]; delete ECHECS_CODE[usr.login]; usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
       if (viaSecours) NOTIF.securite("compte", { titre: `Code de secours utilisé : ${usr.login}`, detail: `Connexion avec un code de secours ; ${usr.mfa.secours.length} code(s) restant(s).` });
       return send(req, res, 200, { ok: true, secoursRestants: viaSecours ? usr.mfa.secours.length : undefined });
     }
@@ -288,8 +296,9 @@ http.createServer(async (req, res) => {
     if (p === "/api/double-authentification/secours" && req.method === "POST") {
       if (!MFA) return send(req, res, 400, { error: "Non applicable" });
       if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
+      if (compteBloque(me.login)) return send(req, res, 429, { error: "Trop de codes incorrects : réessayez dans une heure." });
       const b = await jbody(req), usr = USERS.find(x => x.login === me.login); if (!usr || !usr.mfa || !usr.mfa.actif) return send(req, res, 400, { error: "Double authentification non activée." });
-      const st = totpVerif(usr.mfa.secret, b.code, usr.mfa.dernierPas); if (st < 0) { fail(ip, me.login); return send(req, res, 403, { error: "Code incorrect." }); }
+      const st = totpVerif(usr.mfa.secret, b.code, usr.mfa.dernierPas); if (st < 0) { fail(ip, me.login); echecCompte(me.login); return send(req, res, 403, { error: "Code incorrect." }); }
       const codes = nouveauxSecours(); usr.mfa.dernierPas = st; usr.mfa.secours = codes.map(hashSecours); saveUsers();
       return send(req, res, 200, { codesSecours: codes });
     }
