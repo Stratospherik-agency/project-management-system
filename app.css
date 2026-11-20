@@ -465,3 +465,14 @@ table.docs .fmts{flex-wrap:nowrap}
 .rg-k{font-style:italic}
 .rg-m{white-space:nowrap;text-align:right}
 @media (max-width:640px){.rg-it{grid-template-columns:1fr}.rg-m{text-align:left}.rg-row{flex-wrap:wrap}}
+/* Contributeurs du site */
+.ann-pick{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-top:6px;display:grid;gap:2px}
+.ann-pick .chk[hidden]{display:none}
+.ann-pick-t{text-transform:uppercase;letter-spacing:.05em;font-size:11px;margin-top:8px}
+/* Double authentification (connexion) */
+.mfa-qr{display:flex;justify-content:center;margin:10px 0}
+.mfa-qr svg{width:200px;height:200px;background:#fff}
+.mfa-secret{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all;background:#f6fafd;border:1px solid var(--line);border-radius:8px;padding:8px}
+.mfa-codes{columns:2;font-family:ui-monospace,Menlo,monospace;font-size:14px;background:#f6fafd;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0}
+.ann-bar select{max-width:260px}
+.login-card [hidden]{display:none}

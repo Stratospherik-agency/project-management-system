@@ -4,7 +4,8 @@ Application web de gestion du projet de refonte (hepl.ch, MyEtu, MyCollab, MyPar
 
 - Node.js ≥ 22.13, **aucune dépendance**.
 - Données : base SQLite (journal de toutes les modifications, instantanés horaires, fichiers versionnés).
-- Accès : comptes administrateur / éditeur / lecteur.
+- Accès : comptes administrateur / éditeur / lecteur, double authentification (TOTP) obligatoire.
+- Annuaire des contributeurs du site (données personnelles : uniquement dans la base, jamais dans Git).
 
 | Fichier | Rôle |
 |---|---|

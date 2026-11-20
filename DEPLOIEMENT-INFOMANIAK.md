@@ -124,6 +124,24 @@ Options (Terminal, depuis `Tableau-de-bord`) :
 
 Sécurité : jetons stockés hachés, révocables dans la console ; un fichier supprimé sur le Mac n'est jamais détruit sur le serveur mais déplacé dans `hepvd-donnees/projet-corbeille/<date>/` ; journal des synchronisations dans la console. Les fichiers ne sont visibles que par les comptes connectés.
 
+## Double authentification (v0.8)
+
+Obligatoire pour tous les comptes dès la mise à jour. Toutes les sessions ouvertes sont fermées une fois : chacun se reconnecte.
+
+- **Première connexion après la mise à jour** : après le mot de passe, la plateforme affiche un code QR. La personne l'ajoute dans une application d'authentification (Microsoft Authenticator, Google Authenticator, etc.), saisit le code à 6 chiffres, puis note ses **8 codes de secours** (affichés une seule fois).
+- **Connexions suivantes** : mot de passe, puis code à 6 chiffres de l'application. Sans téléphone : un code de secours (usage unique ; une alerte de sécurité est envoyée).
+- **Nouveaux codes de secours** : *Mon compte* (clic sur son nom en haut à droite), avec le code actuel de l'application.
+- **Téléphone perdu ou changé** : un administrateur ouvre *Données & paramètres → Utilisateurs*, choisit le compte et coche « Réinitialiser la double authentification ». La personne l'active à nouveau à sa prochaine connexion. Un administrateur ne peut pas réinitialiser la sienne : prévoir **au moins deux comptes administrateurs**.
+- **Secours** : si plus aucun administrateur ne peut se connecter, ajouter temporairement `--sans-double-authentification` à la commande d'exécution, redémarrer, réinitialiser le compte, puis retirer l'option et redémarrer.
+
+Le secret de chaque compte est stocké dans `utilisateurs.json` (dossier de données, hors dépôt, droits 600) ; les codes de secours y sont hachés.
+
+## Contributeurs du site (v0.8)
+
+*Documents → Contributeurs du site* : entités du site, responsables, contributrices et contributeurs (e-mail, identifiant, formation et accès Jahia, inscription aux ateliers). Recherche, filtres, ajout, modification, suppression, historique, import et export Excel / CSV, échanges avec Jotform.
+
+Ces données personnelles vivent **uniquement dans la base** (dossier de données) : elles ne doivent jamais être ajoutées au dépôt Git ni à `data/projet-data.js`. Premier chargement : bouton **Importer (Excel, CSV)**, avec le fichier préparé.
+
 ## Sauvegardes
 
 - Sauvegardes automatiques de l'hébergement Infomaniak.
@@ -136,4 +154,4 @@ Sécurité : jetons stockés hachés, révocables dans la console ; un fichier s
 
 ## Sécurité — ce qui est en place
 
-Mots de passe chiffrés (scrypt + sel) · sessions en cookie HttpOnly / SameSite=Strict / Secure en HTTPS, 7 jours · blocage 15 min après 8 échecs de connexion · rôles appliqués côté serveur · en-têtes de sécurité (CSP, X-Frame-Options, HSTS) · fichiers du serveur et base inaccessibles par le web · site non indexé par les moteurs de recherche (`robots.txt`, `X-Robots-Tag`).
+Mots de passe chiffrés (scrypt + sel) · double authentification TOTP obligatoire, codes de secours hachés, protection contre le rejeu · sessions en cookie HttpOnly / SameSite=Strict / Secure en HTTPS, 7 jours · blocage 15 min après 8 échecs de connexion · rôles appliqués côté serveur · en-têtes de sécurité (CSP, X-Frame-Options, HSTS) · fichiers du serveur et base inaccessibles par le web · site non indexé par les moteurs de recherche (`robots.txt`, `X-Robots-Tag`).

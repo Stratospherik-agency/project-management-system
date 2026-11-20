@@ -11,6 +11,7 @@
  *   --projet=../..         PROJECT_ROOT  (facultatif : dossier projet servi en lecture sous /projet/)
  *   --sans-authentification               (usage local uniquement, refusé si l'hôte n'est pas 127.0.0.1)
  *   --auth-proxy                          (identité fournie par un reverse proxy : en-tête X-Remote-User)
+ *   --sans-double-authentification       (secours uniquement : désactive la double authentification TOTP, obligatoire par défaut)
  *   --code-installation=CODE  SETUP_CODE  (code choisi pour créer le premier compte quand aucune console n'est accessible ;
  *                                          ignoré dès qu'un compte existe)
  * Journal du serveur : <données>/serveur.log (consultable par FTP / gestionnaire de fichiers).
@@ -30,6 +31,7 @@ const OPEN0 = !!ARGS["sans-authentification"];
 const MIRROR = !PROJ && !OPEN0;
 const PROJECT_ROOT = PROJ ? path.resolve(APP, PROJ) : (MIRROR ? path.resolve(APP, ARGS.data || process.env.DATA_DIR || "data", "projet") : null);
 const OPEN = OPEN0, PROXY = !!ARGS["auth-proxy"];
+const MFA = !OPEN && !PROXY && !ARGS["sans-double-authentification"];
 if (OPEN && HOST !== "127.0.0.1" && HOST !== "localhost") { console.error("Refus : --sans-authentification n'est autorisé qu'en local (127.0.0.1)."); process.exit(1); }
 const FILES_DIR = path.join(DATA_DIR, "fichiers");
 fs.mkdirSync(FILES_DIR, { recursive: true });
@@ -100,7 +102,26 @@ let USERS = rJ(USERS_F, { users: [] }).users, SESS = rJ(SESS_F, {});
 const SESSION_DAYS = 7;
 const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString("hex");
 const checkPw = (u, pw) => { const h = Buffer.from(hashPw(pw, u.salt), "hex"), ref = Buffer.from(u.hash, "hex"); return h.length === ref.length && crypto.timingSafeEqual(h, ref); };
-const pubUser = u => ({ login: u.login, nom: u.nom, role: u.role, actif: u.actif !== false, cree: u.cree, derniereConnexion: u.derniereConnexion || null });
+const pubUser = u => ({ login: u.login, nom: u.nom, role: u.role, actif: u.actif !== false, cree: u.cree, derniereConnexion: u.derniereConnexion || null, doubleAuth: !!(u.mfa && u.mfa.actif) });
+/* ---------- double authentification (TOTP, RFC 6238 : codes à 6 chiffres toutes les 30 s, applications Microsoft / Google Authenticator, etc.) */
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const b32enc = buf => { let bits = 0, val = 0, out = ""; for (const b of buf) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; } } if (bits > 0) out += B32[(val << (5 - bits)) & 31]; return out; };
+const b32dec = s => { const out = []; let bits = 0, val = 0; for (const c of String(s).toUpperCase().replace(/[^A-Z2-7]/g, "")) { val = (val << 5) | B32.indexOf(c); bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } } return Buffer.from(out); };
+const hotp = (key, counter) => { const c = Buffer.alloc(8); c.writeBigUInt64BE(BigInt(counter)); const h = crypto.createHmac("sha1", key).update(c).digest(); const o = h[h.length - 1] & 15; return String(((h.readUInt32BE(o) & 0x7fffffff) % 1e6)).padStart(6, "0"); };
+/* renvoie le pas de temps accepté (fenêtre ±1, soit ±30 s), ou -1 ; un pas déjà utilisé est refusé (rejeu) */
+const totpVerif = (secret, code, dernier) => { code = String(code || "").replace(/\s/g, ""); if (!/^\d{6}$/.test(code)) return -1; const key = b32dec(secret), t = Math.floor(Date.now() / 30000);
+  for (const d of [0, -1, 1]) { const st = t + d; if (st <= (dernier || 0)) continue; const a = Buffer.from(hotp(key, st)), b = Buffer.from(code); if (crypto.timingSafeEqual(a, b)) return st; } return -1; };
+const hashSecours = c => crypto.createHash("sha256").update(String(c).toUpperCase().replace(/[^A-Z0-9]/g, "")).digest("hex");
+const nouveauxSecours = () => Array.from({ length: 8 }, () => { const x = crypto.randomBytes(5).toString("hex").toUpperCase().slice(0, 8); return x.slice(0, 4) + "-" + x.slice(4); });
+const otpUri = (login, secret) => `otpauth://totp/${encodeURIComponent("HEP Vaud pilotage:" + login)}?secret=${secret}&issuer=${encodeURIComponent("HEP Vaud pilotage")}&algorithm=SHA1&digits=6&period=30`;
+const ATTENTE = {}; /* étape intermédiaire de connexion : mot de passe vérifié, code TOTP attendu (10 minutes, 5 essais) */
+function ouvrirAttente(req, res, usr) {
+  const tok = crypto.randomBytes(32).toString("hex"), a = { login: usr.login, exp: Date.now() + 10 * 60e3, essais: 0 };
+  if (usr.mfa && usr.mfa.actif) a.etape = "code"; else { a.etape = "activation"; a.secret = b32enc(crypto.randomBytes(20)); }
+  Object.keys(ATTENTE).forEach(k => { if (ATTENTE[k].exp < Date.now()) delete ATTENTE[k]; }); ATTENTE[tok] = a;
+  res.setHeader("Set-Cookie", `hepvd_a=${tok}; HttpOnly; SameSite=Strict; Path=/api/connexion; Max-Age=600${isHttps(req) ? "; Secure" : ""}`);
+  return a.etape === "code" ? { etape: "code" } : { etape: "activation", secret: a.secret, uri: otpUri(usr.login, a.secret) };
+}
 const saveUsers = () => wJ(USERS_F, { users: USERS });
 const saveSess = () => { const t = Date.now(); Object.keys(SESS).forEach(k => { if (SESS[k].exp < t) delete SESS[k]; }); wJ(SESS_F, SESS); };
 const ROLES = ["admin", "editeur", "lecteur"];
@@ -123,13 +144,15 @@ const fail = (ip, login) => { const f = fails[ip] || { n: 0, t: Date.now() }; if
 function cookies(req) { const o = {}; (req.headers.cookie || "").split(";").forEach(c => { const i = c.indexOf("="); if (i > 0) o[c.slice(0, i).trim()] = decodeURIComponent(c.slice(i + 1).trim()); }); return o; }
 const isHttps = req => req.headers["x-forwarded-proto"] === "https" || !!req.socket.encrypted;
 function setSession(req, res, login) {
-  const tok = crypto.randomBytes(32).toString("hex"); SESS[tok] = { login, exp: Date.now() + SESSION_DAYS * 864e5 }; saveSess();
-  res.setHeader("Set-Cookie", `hepvd_s=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_DAYS * 86400}${isHttps(req) ? "; Secure" : ""}`);
+  const tok = crypto.randomBytes(32).toString("hex"); SESS[tok] = { login, exp: Date.now() + SESSION_DAYS * 864e5, mfa: MFA }; saveSess();
+  const c = [`hepvd_s=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_DAYS * 86400}${isHttps(req) ? "; Secure" : ""}`];
+  if (MFA) c.push("hepvd_a=; Path=/api/connexion; Max-Age=0");
+  res.setHeader("Set-Cookie", c);
 }
 function currentUser(req) {
   if (OPEN) return { login: "local", nom: decodeURIComponent(req.headers["x-hepvd-user"] || "") || "Utilisateur local", role: "admin" };
   if (PROXY) { const n = req.headers["x-remote-user"] || req.headers["x-forwarded-user"] || req.headers["remote-user"]; if (!n) return null; const u = USERS.find(x => x.login === n); return u ? pubUser(u) : { login: n, nom: n, role: "editeur" }; }
-  const s = SESS[cookies(req).hepvd_s]; if (!s || s.exp < Date.now()) return null;
+  const s = SESS[cookies(req).hepvd_s]; if (!s || s.exp < Date.now() || (MFA && !s.mfa)) return null;
   const u = USERS.find(x => x.login === s.login && x.actif !== false); return u ? pubUser(u) : null;
 }
 
@@ -166,7 +189,7 @@ function walk(dir, base, out, depth) {
   }
 }
 const ipOf = req => (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
-const PUBLIC = new Set(["/api/sync/manifeste", "/api/sync/fichier", "/api/sync/fin", "/connexion", "/installation", "/connexion.js", "/app.css", "/assets/logo-hep.svg", "/api/connexion", "/api/installation", "/api/etat-installation", "/favicon.ico", "/robots.txt"]);
+const PUBLIC = new Set(["/api/sync/manifeste", "/api/sync/fichier", "/api/sync/fin", "/connexion", "/installation", "/connexion.js", "/app.css", "/assets/logo-hep.svg", "/assets/vendor/qrcode.js", "/api/connexion", "/api/connexion/code", "/api/connexion/activer", "/api/installation", "/api/etat-installation", "/favicon.ico", "/robots.txt"]);
 
 /* ================================================================ routes */
 http.createServer(async (req, res) => {
@@ -186,8 +209,9 @@ http.createServer(async (req, res) => {
       if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." });
       const salt = crypto.randomBytes(16).toString("hex");
       USERS.push({ login: b.login, nom: String(b.nom || b.login).slice(0, 80), role: "admin", salt, hash: hashPw(b.password, salt), cree: now(), actif: true });
-      saveUsers(); SETUP_CODE = null; try { fs.unlinkSync(CODE_F); } catch (e) { } setSession(req, res, b.login); console.log(`Installation terminée : compte administrateur « ${b.login} » créé.`);
-      return send(req, res, 200, { ok: true });
+      saveUsers(); SETUP_CODE = null; try { fs.unlinkSync(CODE_F); } catch (e) { } console.log(`Installation terminée : compte administrateur « ${b.login} » créé.`);
+      if (MFA) return send(req, res, 200, ouvrirAttente(req, res, USERS.find(x => x.login === b.login)));
+      setSession(req, res, b.login); return send(req, res, 200, { ok: true });
     }
     /* ---------- connexion */
     if (p === "/connexion") return serveFile(req, res, path.join(APP, "connexion.html"));
@@ -195,7 +219,33 @@ http.createServer(async (req, res) => {
       if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
       const b = await jbody(req); const usr = USERS.find(x => x.login === String(b.login || "").trim().toLowerCase() && x.actif !== false);
       if (!usr || !checkPw(usr, b.password || "")) { fail(ip, String(b.login || "").trim().toLowerCase().slice(0, 120)); return send(req, res, 401, { error: "Identifiant ou mot de passe incorrect." }); }
+      if (MFA) return send(req, res, 200, ouvrirAttente(req, res, usr));
       usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login); return send(req, res, 200, { ok: true });
+    }
+    /* ---------- double authentification : code de l'application (ou code de secours), puis première activation */
+    if ((p === "/api/connexion/code" || p === "/api/connexion/activer") && req.method === "POST") {
+      if (!MFA) return send(req, res, 400, { error: "Double authentification désactivée." });
+      if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
+      const tok = cookies(req).hepvd_a, a = ATTENTE[tok], b = await jbody(req);
+      const usr = a && USERS.find(x => x.login === a.login && x.actif !== false);
+      if (!a || a.exp < Date.now() || !usr) { if (tok) delete ATTENTE[tok]; return send(req, res, 401, { error: "Session de connexion expirée : saisissez à nouveau votre mot de passe.", recommencer: true }); }
+      const echec = msg => { a.essais++; fail(ip, a.login); if (a.essais >= 5) { delete ATTENTE[tok]; return send(req, res, 401, { error: "Trop d'essais : saisissez à nouveau votre mot de passe.", recommencer: true }); } return send(req, res, 401, { error: msg }); };
+      if (p === "/api/connexion/activer") {
+        if (a.etape !== "activation") return send(req, res, 400, { error: "Étape inattendue." });
+        const st = totpVerif(a.secret, b.code, 0); if (st < 0) return echec("Code incorrect. Vérifiez l'heure de votre téléphone et saisissez le code affiché maintenant.");
+        const codes = nouveauxSecours(); usr.mfa = { actif: true, secret: a.secret, depuis: now(), dernierPas: st, secours: codes.map(hashSecours) };
+        delete ATTENTE[tok]; usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
+        NOTIF.securite("compte", { titre: `Double authentification activée : ${usr.login}`, detail: `Activée par la personne à sa connexion.` });
+        return send(req, res, 200, { ok: true, codesSecours: codes });
+      }
+      if (a.etape !== "code" || !usr.mfa || !usr.mfa.actif) return send(req, res, 400, { error: "Étape inattendue.", recommencer: true });
+      const brut = String(b.code || "").trim(); let ok = false, viaSecours = false;
+      if (/^\d{6}$/.test(brut.replace(/\s/g, ""))) { const st = totpVerif(usr.mfa.secret, brut, usr.mfa.dernierPas); if (st >= 0) { usr.mfa.dernierPas = st; ok = true; } }
+      else { const h = hashSecours(brut), i = (usr.mfa.secours || []).indexOf(h); if (i >= 0) { usr.mfa.secours.splice(i, 1); ok = viaSecours = true; } }
+      if (!ok) return echec("Code incorrect.");
+      delete ATTENTE[tok]; usr.derniereConnexion = now(); saveUsers(); setSession(req, res, usr.login);
+      if (viaSecours) NOTIF.securite("compte", { titre: `Code de secours utilisé : ${usr.login}`, detail: `Connexion avec un code de secours ; ${usr.mfa.secours.length} code(s) restant(s).` });
+      return send(req, res, 200, { ok: true, secoursRestants: viaSecours ? usr.mfa.secours.length : undefined });
     }
     if (p === "/api/deconnexion" && req.method === "POST") { const t = cookies(req).hepvd_s; if (t) { delete SESS[t]; saveSess(); } res.setHeader("Set-Cookie", "hepvd_s=; Path=/; Max-Age=0"); return send(req, res, 200, { ok: true }); }
     /* ---------- synchronisation du dossier projet (jeton, sans session) */
@@ -205,7 +255,7 @@ http.createServer(async (req, res) => {
     if (!me && !PUBLIC.has(p)) { if (p.startsWith("/api/")) return send(req, res, 401, { error: "non connecté", redirect: "connexion" }); res.writeHead(302, { Location: "/connexion" }); return res.end(); }
     const canEdit = me && me.role !== "lecteur", isAdmin = me && me.role === "admin";
     /* ---------- API */
-    if (p === "/api/whoami") return send(req, res, 200, { user: me, auth: !OPEN, docsBase: PROJECT_ROOT ? "projet/" : null, miroir: MIRROR, storage: store.kind });
+    if (p === "/api/whoami") return send(req, res, 200, { user: me, auth: !OPEN, doubleAuth: MFA, docsBase: PROJECT_ROOT ? "projet/" : null, miroir: MIRROR, storage: store.kind });
     if (p === "/api/data" && req.method === "GET") { const s = store.get(); if (!s) return send(req, res, 404, { error: "vide" }); return send(req, res, 200, `{"rev":${s.rev},"data":${s.data}}`); }
     if (p === "/api/data" && req.method === "PUT") {
       if (!canEdit) return send(req, res, 403, { error: "Accès en lecture seule" });
@@ -235,6 +285,14 @@ http.createServer(async (req, res) => {
       if (!validPw(b.nouveau)) return send(req, res, 400, { error: "Nouveau mot de passe : 12 caractères minimum." });
       usr.salt = crypto.randomBytes(16).toString("hex"); usr.hash = hashPw(b.nouveau, usr.salt); saveUsers(); return send(req, res, 200, { ok: true });
     }
+    if (p === "/api/double-authentification/secours" && req.method === "POST") {
+      if (!MFA) return send(req, res, 400, { error: "Non applicable" });
+      if (tooMany(ip)) return send(req, res, 429, { error: "Trop de tentatives, réessayez dans 15 minutes." });
+      const b = await jbody(req), usr = USERS.find(x => x.login === me.login); if (!usr || !usr.mfa || !usr.mfa.actif) return send(req, res, 400, { error: "Double authentification non activée." });
+      const st = totpVerif(usr.mfa.secret, b.code, usr.mfa.dernierPas); if (st < 0) { fail(ip, me.login); return send(req, res, 403, { error: "Code incorrect." }); }
+      const codes = nouveauxSecours(); usr.mfa.dernierPas = st; usr.mfa.secours = codes.map(hashSecours); saveUsers();
+      return send(req, res, 200, { codesSecours: codes });
+    }
     if (p === "/api/admin/notifications" || p.startsWith("/api/admin/notifications/")) {
       if (!isAdmin) return send(req, res, 403, { error: "Réservé aux administrateurs" });
       return NOTIF.api(req, res, p, { send, jbody, me });
@@ -263,9 +321,10 @@ http.createServer(async (req, res) => {
         if (b.role) { if (!ROLES.includes(b.role)) return send(req, res, 400, { error: "Rôle invalide" }); if (usr.login === me.login && b.role !== "admin") return send(req, res, 400, { error: "Vous ne pouvez pas retirer vos propres droits d'administration." }); usr.role = b.role; }
         if (typeof b.actif === "boolean") { if (usr.login === me.login && !b.actif) return send(req, res, 400, { error: "Vous ne pouvez pas désactiver votre propre compte." }); usr.actif = b.actif; if (!b.actif) Object.keys(SESS).forEach(k => { if (SESS[k].login === usr.login) delete SESS[k]; }); saveSess(); }
         if (b.password) { if (!validPw(b.password)) return send(req, res, 400, { error: "Mot de passe : 12 caractères minimum." }); usr.salt = crypto.randomBytes(16).toString("hex"); usr.hash = hashPw(b.password, usr.salt); }
+        if (b.reinitDoubleAuth) { if (usr.login === me.login) return send(req, res, 400, { error: "Demandez à un autre administrateur de réinitialiser votre double authentification." }); delete usr.mfa; Object.keys(SESS).forEach(k => { if (SESS[k].login === usr.login) delete SESS[k]; }); saveSess(); }
         saveUsers();
-        const chg = [b.role ? `rôle « ${b.role} »` : "", typeof b.actif === "boolean" ? (b.actif ? "réactivé" : "désactivé") : "", b.password ? "mot de passe réinitialisé" : "", b.nom ? "nom modifié" : ""].filter(Boolean).join(", ");
-        if (b.role || typeof b.actif === "boolean" || b.password) NOTIF.securite("compte", { titre: `Compte modifié : ${usr.login}`, detail: `${chg} — par ${me.nom}.` });
+        const chg = [b.role ? `rôle « ${b.role} »` : "", typeof b.actif === "boolean" ? (b.actif ? "réactivé" : "désactivé") : "", b.password ? "mot de passe réinitialisé" : "", b.nom ? "nom modifié" : "", b.reinitDoubleAuth ? "double authentification réinitialisée" : ""].filter(Boolean).join(", ");
+        if (b.role || typeof b.actif === "boolean" || b.password || b.reinitDoubleAuth) NOTIF.securite("compte", { titre: `Compte modifié : ${usr.login}`, detail: `${chg} — par ${me.nom}.` });
         return send(req, res, 200, { ok: true });
       }
       return send(req, res, 405, {});
@@ -279,6 +338,6 @@ http.createServer(async (req, res) => {
     return serveFile(req, res, f);
   } catch (e) { console.error(e); send(req, res, 500, { error: "Erreur serveur" }); }
 }).listen(PORT, HOST, () => {
-  console.log(`Plateforme HEPVD v0.5.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? (MIRROR ? " · miroir du dossier projet : " : " · dossier projet : ") + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : "comptes"}`);
+  console.log(`Plateforme HEPVD v0.8.0 — écoute sur ${HOST}:${PORT} · stockage : ${store.kind} · données : ${DATA_DIR}${PROJECT_ROOT ? (MIRROR ? " · miroir du dossier projet : " : " · dossier projet : ") + PROJECT_ROOT : ""} · authentification : ${OPEN ? "désactivée (local)" : PROXY ? "proxy" : MFA ? "comptes + double authentification" : "comptes (double authentification désactivée)"}`);
   if (SETUP_CODE) console.log(`\n=== PREMIÈRE INSTALLATION ===\nOuvrez le site et saisissez le code d'installation${ARGS["code-installation"] || process.env.SETUP_CODE ? " indiqué dans la commande d'exécution" : " : " + SETUP_CODE + " (aussi dans " + CODE_F + ")"}\n`);
 });
